@@ -1,0 +1,14 @@
+# VeriFact
+
+> Forensic AI verification platform that detects fake news, deepfakes, voice cloning and manipulated media across text, images, video, audio and URLs.
+
+VeriFact combines NLP fact-checking, image and video deepfake detection, audio forensic analysis (voice cloning, splicing, synthetic speech) and URL credibility checks into a single dashboard with confidence scores and downloadable forensic reports.
+
+## Pages
+
+- [Home](/): Run text, image, video, audio or URL verification.
+- [Sign in](/auth): Create an account or sign in.
+
+## Guides
+
+- [How to detect deepfakes](/guides/how-to-detect-deepfakes): Forensic AI walkthrough covering EXIF, lighting, AI artifacts, voice cloning and video temporal glitches.

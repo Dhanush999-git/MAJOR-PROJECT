@@ -1,0 +1,22 @@
+project_id = "dheeqpflvlzlcvahjkjk"
+
+[functions.verify-text]
+verify_jwt = false
+
+[functions.verify-image]
+verify_jwt = false
+
+[functions.verify-video]
+verify_jwt = false
+
+[functions.verify-url]
+verify_jwt = false
+
+[functions.truth-chat]
+verify_jwt = false
+
+[functions.verify-audio]
+verify_jwt = false
+
+[functions.verify-document]
+verify_jwt = false
