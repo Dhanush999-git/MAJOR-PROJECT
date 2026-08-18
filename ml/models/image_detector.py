@@ -44,7 +44,14 @@ class ImageDetector:
         print("Image detector loaded successfully.")
 
     def predict(self, image_path: str):
-        image = Image.open(image_path).convert("RGB")
+        try:
+            image = Image.open(image_path)
+            image.load()
+            image = image.convert("RGB")
+        except Exception as e:
+            raise ValueError(
+                f"Unable to decode uploaded image: {e}"
+            ) from e
 
         inputs = self.processor(
             images=image,

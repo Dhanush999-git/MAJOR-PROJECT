@@ -96,11 +96,16 @@ async def predict_image(file: UploadFile = File(...)):
             "result": result
         }
 
-    except Exception as e:
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
 
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=f"Image prediction failed: {e}"
         )
 
     finally:
