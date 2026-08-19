@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "./AuthContext";
 import { computeContentHash, getCachedResult, setCachedResult } from "@/lib/cacheManager";
@@ -80,62 +79,62 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   const [urlState, setUrlState] = useState<AnalysisState<string>>(initialModuleState);
   const [qrState, setQrState] = useState<AnalysisState<any>>(initialModuleState);
 
-  const saveScanToDb = async (scanType: string, label: string, verdict: string | null, confidence: number | null, details: any) => {
-    const payload = {
-      user_id: user?.id || "guest-user",
-      scan_type: scanType,
-      input_label: label.slice(0, 80),
-      file_path: null,
-      verdict: verdict || "unknown",
-      confidence: confidence || 0,
-      source_type: null,
-      details: details || {},
-      effects: [],
-      created_at: new Date().toISOString(),
-    };
+  const saveScanToDb = async (
+  scanType: string,
+  label: string,
+  verdict: string | null,
+  confidence: number | null,
+  details: any
+) => {
+  const payload = {
+  user_id: user?.id || "guest-user",
+  scan_type: scanType,
+  input_label: label.slice(0, 80),
+  file_path: null,
 
-    // 1. Save directly into MongoDB Compass collection 'scans'
-    try {
-      await fetch("http://localhost:5000/api/scans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-    } catch {}
+  // Actual ML result
+  verdict: verdict || "unknown",
+  confidence: Number(confidence) || 0,
 
-    // 2. Post analysis log to MongoDB Compass collection 'analysis_logs'
-    try {
-      await fetch("http://localhost:5000/api/logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          log_type: "forensic_scan",
-          scan_type: scanType,
-          label,
-          verdict,
-          confidence,
-          user_id: user?.id || "guest",
-        }),
-      }).catch(() => {});
-    } catch {}
+  source_type: "image",
+  details: details || {},
+  effects: [],
+  created_at: new Date().toISOString(),
+};
 
-    // 3. Save to Supabase if authenticated
-    if (user) {
-      try {
-        await supabase.from("scans").insert({
-          user_id: user.id,
-          scan_type: scanType,
-          input_label: label.slice(0, 80),
-          file_path: null,
-          verdict: verdict || "unknown",
-          confidence: confidence || 0,
-          source_type: null,
-          details: details || {},
-          effects: [],
-        });
-      } catch {}
-    }
-  };
+  // Save scan to local MongoDB backend
+  try {
+    await fetch("http://localhost:5000/api/scans", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.error("MongoDB scan save failed:", error);
+  }
+
+  // Save analysis log to local MongoDB backend
+  try {
+    await fetch("http://localhost:5000/api/logs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        log_type: "forensic_scan",
+        scan_type: scanType,
+        label,
+        verdict,
+        confidence,
+        user_id: user?.id || "guest",
+      }),
+    });
+  } catch (error) {
+    console.error("MongoDB log save failed:", error);
+  }
+};
 
   const simulateProgress = (setter: React.Dispatch<React.SetStateAction<AnalysisState>>, statuses: string[], durationMs: number = 1000) => {
     const start = Date.now();
@@ -167,7 +166,19 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
     const timer = simulateProgress(setTextState, ["Extracting claims...", "Searching news agencies...", "Cross-checking facts...", "Finalizing verdict..."], 800);
 
     try {
-      const { data, error } = await supabase.functions.invoke("verify-text", { body: { text } });
+      const response = await fetch("http://localhost:5000/api/analyze/text", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ text }),
+});
+
+const data = await response.json();
+
+if (!response.ok) {
+  throw new Error(data.error || "Text analysis failed");
+}
       clearInterval(timer);
       if (error) throw error;
 
@@ -210,43 +221,6 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   const runImageAnalysis = async (imageData: string, signals?: any, forensics?: any) => {
     const startTime = performance.now();
 
-    // 1. Instant Cache Check (sub-10ms)
-    const contentHash = await computeContentHash(imageData);
-    const cachedResult = getCachedResult<any>(contentHash, "image-model-b-v2");
-    if (cachedResult) {
-      const cacheHitTime = Math.round(performance.now() - startTime);
-      const enrichedCached = {
-        ...cachedResult,
-        speedMetrics: {
-          ...cachedResult.speedMetrics,
-          totalMs: cacheHitTime,
-          isCached: true,
-          throughputLabel: "Instant (Cached)",
-        },
-        executionTimeMs: cacheHitTime,
-      };
-
-      setImageState({
-        isAnalyzing: false,
-        progress: 100,
-        statusText: "Complete (Cached)",
-        input: imageData,
-        result: enrichedCached,
-        extraData: { signals, forensics },
-        error: null,
-      });
-
-      saveScanToDb(
-        "image",
-        "Image scan (Cached)",
-        enrichedCached.verdictTag || enrichedCached.verdict || enrichedCached.category,
-        enrichedCached.confidence,
-        enrichedCached,
-      );
-      toast.success(`⚡ Analysis loaded from cache in ${cacheHitTime}ms!`);
-      return;
-    }
-
     // 2. Start Progressive Analysis State
     setImageState({
       isAnalyzing: true,
@@ -280,6 +254,8 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
       let aiResponse: SpecialistModelResult | null = null;
 
       // 4. Pretrained specialist ML model
+      const mlUrl = "http://127.0.0.1:8000/predict/image";
+
 try {
   // Convert the browser data URL into a Blob
   const imageBlob = await fetch(imageData).then((response) => response.blob());
@@ -288,7 +264,6 @@ try {
   formData.append("file", imageBlob, "verification-image.jpg");
 
   // Send image to local Python ML API
-  const mlUrl = "http://127.0.0.1:8000/predict/image";
   console.info("[Image ML] Request", {
     url: mlUrl,
     method: "POST",
@@ -362,64 +337,94 @@ try {
   }
 } catch (e) {
   console.error("[Image ML] Request failed", {
-    url: "http://127.0.0.1:8000/predict/image",
+    url: mlUrl,
     message: e instanceof Error ? e.message : String(e),
     error: e,
   });
-  console.error("Pretrained ML API unavailable. Continuing with local forensic analysis.");
+
+  throw e;
 }
 
       // 5. Final result: specialist model is primary; forensic analysis is supporting evidence.
-      const forensicEnsemble = buildForensicEnsemble(forensics, signals, null);
+      const forensicEnsemble = buildForensicEnsemble(
+  forensics,
+  signals,
+  aiResponse
+);
       const modelVerdict = String(aiResponse?.verdict ?? "").trim().toUpperCase();
       const isSpecialistFake =
-        modelVerdict === "FAKE" ||
-        modelVerdict === "AI-GENERATED" ||
-        modelVerdict === "AI_GENERATED";
+  modelVerdict === "FAKE" ||
+  modelVerdict === "AI-GENERATED" ||
+  modelVerdict === "AI_GENERATED" ||
+  modelVerdict === "AI GENERATED";
       const specialistConfidence = aiResponse
-        ? asFiniteNumber(aiResponse.confidence) ?? 0
-        : asFiniteNumber(forensicEnsemble.confidence) ?? 0;
+  ? asFiniteNumber(aiResponse.confidence) ?? 0
+  : 0;
       const specialistFakeProbability = aiResponse
-        ? asFiniteNumber(aiResponse.fake_probability) ??
-          (isSpecialistFake ? specialistConfidence : 100 - specialistConfidence)
-        : asFiniteNumber(forensicEnsemble.confidence) ?? 0;
+  ? asFiniteNumber(aiResponse.fake_probability) ?? 0
+  : 0;
       const specialistRealProbability = aiResponse
-        ? asFiniteNumber(aiResponse.real_probability) ??
-          (modelVerdict === "REAL" ? specialistConfidence : 100 - specialistConfidence)
-        : 0;
+  ? asFiniteNumber(aiResponse.real_probability) ??
+    (modelVerdict === "REAL"
+      ? specialistConfidence
+      : 100 - specialistConfidence)
+  : 0;
 
       let finalEnsemble: any;
 
       if (aiResponse) {
-        finalEnsemble = {
-          ...forensicEnsemble,
-          classification: isSpecialistFake ? "AI Generated Image" : "Real Camera Photograph",
-          category: isSpecialistFake ? "manipulated" : "authentic",
-          verdict: isSpecialistFake ? "AI Generated Image" : "Authentic Image",
-          verdictTag: isSpecialistFake ? "AI Generated" : "Original Photo",
-          isAuthentic: !isSpecialistFake,
-          confidence: specialistConfidence,
-          fakeProbability: specialistFakeProbability,
-          realProbability: specialistRealProbability,
-          primaryMetric: {
-            label: "AI Generated Probability",
-            value: specialistFakeProbability,
-          },
-          model: aiResponse.model,
-          plainExplanation: isSpecialistFake
-            ? `The pretrained specialist deepfake detection model classified this image as AI-generated with ${specialistConfidence.toFixed(2)}% confidence. The forensic analysis below provides supporting evidence and metadata.`
-            : `The pretrained specialist deepfake detection model classified this image as likely authentic with ${specialistConfidence.toFixed(2)}% confidence. The forensic analysis below provides supporting evidence and metadata.`,
-          specialistModelResult: aiResponse,
-          forensicEvidence: forensicEnsemble,
-        };
+  finalEnsemble = {
+    ...forensicEnsemble,
+
+    // PRIMARY MODEL RESULT
+    classification: isSpecialistFake
+      ? "AI Generated Image"
+      : "Real Camera Photograph",
+
+    category: isSpecialistFake
+      ? "manipulated"
+      : "authentic",
+
+    verdict: isSpecialistFake
+      ? "AI Generated Image"
+      : "Authentic Image",
+
+    verdictTag: isSpecialistFake
+      ? "AI Generated"
+      : "Original Photo",
+
+    isAuthentic: !isSpecialistFake,
+
+    confidence: specialistConfidence,
+
+    fakeProbability: specialistFakeProbability,
+
+    realProbability: specialistRealProbability,
+
+    primaryMetric: {
+      label: isSpecialistFake
+        ? "AI Generated Probability"
+        : "Authenticity Probability",
+      value: isSpecialistFake
+        ? specialistFakeProbability
+        : specialistRealProbability,
+    },
+
+    model: aiResponse.model,
+
+    specialistModelResult: aiResponse,
+
+    plainExplanation: isSpecialistFake
+      ? `The pretrained deepfake detection model classified this image as AI-generated with ${specialistConfidence.toFixed(2)}% confidence.`
+      : `The pretrained deepfake detection model classified this image as authentic with ${specialistConfidence.toFixed(2)}% confidence.`,
+
+    forensicEvidence: forensicEnsemble,
+  };
       } else {
-        finalEnsemble = {
-          ...forensicEnsemble,
-          plainExplanation:
-            "The pretrained specialist model could not be reached. The forensic analysis is shown as supporting evidence only.",
-          modelUnavailable: true,
-        };
-      }
+  throw new Error(
+    "The pretrained image detection model did not return a result."
+  );
+}
 
 clearInterval(timer);
 
@@ -484,17 +489,18 @@ const enrichedData = {
   },
 
   specialistModelResult: aiResponse,
-
-  forensicEvidence: finalEnsemble,
+forensicEvidence: finalEnsemble,
+modelUsed:
+  aiResponse?.model ||
+  "deepfake-detector-model-v1",
 
   effects: [],
   regions: [],
 
   speedMetrics,
   executionTimeMs: elapsedMs,
-};
+      };
       // Store in high-speed cache
-      setCachedResult(contentHash, "image-model-b-v2", enrichedData);
 
       setImageState((prev) => ({
         ...prev,
@@ -504,7 +510,13 @@ const enrichedData = {
         result: enrichedData,
       }));
 
-      saveScanToDb("image", "Image scan", enrichedData.verdictTag || enrichedData.verdict || enrichedData.category, enrichedData.confidence, enrichedData);
+      await saveScanToDb(
+  "image",
+  "Image scan",
+  enrichedData.verdict,
+  Number(enrichedData.confidence ?? 0),
+  enrichedData
+);
       toast.success(`Multi-Model Analysis completed in ${elapsedMs}ms!`);
     } catch (err) {
       clearInterval(timer);

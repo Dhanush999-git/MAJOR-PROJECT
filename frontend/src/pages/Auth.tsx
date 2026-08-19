@@ -35,7 +35,7 @@ type Mode = "signin" | "signup" | "forgot";
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, loading } = useAuth();
+  const { user, loading, refreshProfile } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,22 +72,57 @@ const Auth = () => {
 
       setBusy(true);
       if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email: e1, password });
-        if (error) throw error;
-        toast.success("Welcome back");
-        navigate(from, { replace: true });
-      } else if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email: e1,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}${from}`,
-            data: { display_name: displayName },
-          },
-        });
-        if (error) throw error;
-        toast.success("Account created — you're signed in");
-      } else {
+  const response = await fetch("http://localhost:5000/api/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: e1,
+      password,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Login failed");
+  }
+
+  localStorage.setItem("verifact_token", data.token);
+localStorage.setItem("verifact_user", JSON.stringify(data.user));
+
+await refreshProfile();
+
+toast.success("Welcome back");
+navigate(from, { replace: true });
+} else if (mode === "signup") {
+  const response = await fetch("http://localhost:5000/api/auth/register", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: e1,
+      password,
+      display_name: displayName,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Registration failed");
+  }
+
+  localStorage.setItem("verifact_token", data.token);
+localStorage.setItem("verifact_user", JSON.stringify(data.user));
+
+await refreshProfile();
+
+toast.success("Account created successfully");
+navigate(from, { replace: true });
+} else {
         const { error } = await supabase.auth.resetPasswordForEmail(e1, {
           redirectTo: `${window.location.origin}/reset-password`,
         });
