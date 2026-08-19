@@ -1,3 +1,5 @@
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import express from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
@@ -10,7 +12,7 @@ const PORT = process.env.PORT || 5000;
 const HOST = "0.0.0.0";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/verifact";
 const DB_NAME = process.env.DB_NAME || "verifact";
-
+const JWT_SECRET = process.env.JWT_SECRET || "verifact-local-secret";
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "50mb" }));
 
@@ -298,7 +300,173 @@ app.post("/api/eval", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ===============================
+// LOCAL AUTHENTICATION
+// ===============================
 
+// Register
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { email, password, display_name } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email and password are required",
+      });
+    }
+
+    const users = db.collection("users");
+
+    const existingUser = await users.findOne({ email });
+
+    if (existingUser) {
+      return res.status(409).json({
+        error: "User already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = {
+      email,
+      password: hashedPassword,
+      display_name: display_name || "User",
+      created_at: new Date().toISOString(),
+    };
+
+    const result = await users.insertOne(newUser);
+
+    const token = jwt.sign(
+      {
+        id: result.insertedId.toString(),
+        email,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: result.insertedId.toString(),
+        email,
+        display_name: newUser.display_name,
+      },
+    });
+  } catch (err) {
+    console.error("Register error:", err);
+    res.status(500).json({
+      error: "Registration failed",
+    });
+  }
+});
+
+
+// Login
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({
+        error: "Database not connected",
+      });
+    }
+
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email and password are required",
+      });
+    }
+
+    const users = db.collection("users");
+
+    const user = await users.findOne({ email });
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    const passwordCorrect = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!passwordCorrect) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user._id.toString(),
+        email: user.email,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        display_name: user.display_name || "User",
+      },
+    });
+  } catch (err) {
+    console.error("Login error:", err);
+
+    res.status(500).json({
+      error: "Login failed",
+    });
+  }
+});
+// ===============================
+// TEXT ANALYSIS
+// ===============================
+
+app.post("/api/analyze/text", async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({
+        error: "Text is required",
+      });
+    }
+
+    // Temporary local analysis
+    // Replace this section later with your actual text ML model.
+    const isSuspicious =
+      text.toLowerCase().includes("fake") ||
+      text.toLowerCase().includes("scam");
+
+    const result = {
+      isAuthentic: !isSuspicious,
+      confidence: isSuspicious ? 85 : 90,
+      category: isSuspicious ? "fake" : "authentic",
+      analysis: isSuspicious
+        ? "The text contains potentially suspicious claims."
+        : "No obvious suspicious indicators were detected.",
+    };
+
+    res.json(result);
+  } catch (err) {
+    console.error("Text analysis error:", err);
+
+    res.status(500).json({
+      error: "Text analysis failed",
+    });
+  }
+});
 initMongoDB().then(() => {
   app.listen(PORT, HOST, () => {
     console.log(`🚀 VeriFact MongoDB API Server running on http://${HOST}:${PORT}`);
