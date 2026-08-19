@@ -82,7 +82,7 @@ const VERDICT_CLS: Record<string, string> = {
 
 const Dashboard = () => {
   const { profile } = useAuth();
-  const { scans, isLoading } = useScans();
+  const { scans, isLoading, error } = useScans();
   const name = profile?.display_name || profile?.email?.split("@")[0] || "there";
 
   const stats = useMemo(() => {
@@ -213,6 +213,12 @@ const Dashboard = () => {
 
           {isLoading ? (
             <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <AlertTriangle className="h-12 w-12 mx-auto text-destructive mb-4" />
+              <h2 className="text-xl font-bold mb-2">Unable to load scan history</h2>
+              <p className="text-muted-foreground">Please sign in again before viewing your scans.</p>
+            </div>
           ) : scans.length === 0 ? (
             <div className="text-center py-12">
               <Sparkles className="h-12 w-12 mx-auto text-primary mb-4" />

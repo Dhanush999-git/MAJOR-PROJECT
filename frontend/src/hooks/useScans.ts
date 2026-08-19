@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DynamicRecord } from "@/lib/analysisTypes";
+import { API_BASE_URL } from "@/lib/api";
 
 export interface Scan {
   id: string;
@@ -18,33 +18,38 @@ export interface Scan {
 }
 
 export function useScans() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const queryClient = useQueryClient();
 
   const scansQuery = useQuery({
-  queryKey: ["scans", user?.id],
-  queryFn: async () => {
-    if (!user?.id) return [];
+    queryKey: ["scans", user?.id],
+    enabled: Boolean(user?.id && token),
+    queryFn: async () => {
+    if (!user?.id || !token) {
+      throw new Error("Authentication is not ready");
+    }
 
     try {
       const res = await fetch(
-        `http://localhost:5000/api/scans?user_id=${encodeURIComponent(user.id)}`
+        `${API_BASE_URL}/api/scans?user_id=${encodeURIComponent(user.id)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
 
+      const responseBody = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error("Failed to fetch scans");
+        throw new Error(responseBody?.error || "Failed to fetch scans");
       }
 
-      const mongoData = await res.json();
-
-      if (Array.isArray(mongoData)) {
-        return mongoData as Scan[];
+      if (!Array.isArray(responseBody)) {
+        throw new Error("Scan history response was not an array");
       }
 
-      return [];
+      return responseBody as Scan[];
     } catch (error) {
       console.error("MongoDB scan history fetch failed:", error);
-      return [];
+      throw error instanceof Error ? error : new Error("Failed to fetch scans");
     }
   },
 });
@@ -54,16 +59,17 @@ export function useScans() {
   scan: Omit<Scan, "id" | "created_at" | "user_id">
 ) => {
   const payload = {
-    user_id: user?.id || "local-user",
+    user_id: user?.id || "guest-user",
     ...scan,
     created_at: new Date().toISOString(),
   };
 
   try {
-    const res = await fetch("http://localhost:5000/api/scans", {
+    const res = await fetch(`${API_BASE_URL}/api/scans`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(payload),
     });
@@ -92,5 +98,10 @@ export function useScans() {
   },
 });
 
-  return { scans: scansQuery.data ?? [], isLoading: scansQuery.isLoading, saveScan };
+  return {
+    scans: scansQuery.data ?? [],
+    isLoading: scansQuery.isLoading,
+    error: scansQuery.error,
+    saveScan,
+  };
 }

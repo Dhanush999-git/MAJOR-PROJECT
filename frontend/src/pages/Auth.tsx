@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Seo } from "@/components/Seo";
+import { API_BASE_URL } from "@/lib/api";
 
 const emailSchema = z.string().trim().email({ message: "Enter a valid email" }).max(255);
 const passwordSchema = z
@@ -35,7 +36,7 @@ type Mode = "signin" | "signup" | "forgot";
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, loading, refreshProfile } = useAuth();
+  const { user, loading, setSession } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +73,7 @@ const Auth = () => {
 
       setBusy(true);
       if (mode === "signin") {
-  const response = await fetch("http://localhost:5000/api/auth/login", {
+  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -89,15 +90,12 @@ const Auth = () => {
     throw new Error(data.error || "Login failed");
   }
 
-  localStorage.setItem("verifact_token", data.token);
-localStorage.setItem("verifact_user", JSON.stringify(data.user));
-
-await refreshProfile();
+  setSession(data.user, data.token);
 
 toast.success("Welcome back");
 navigate(from, { replace: true });
 } else if (mode === "signup") {
-  const response = await fetch("http://localhost:5000/api/auth/register", {
+  const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -115,10 +113,7 @@ navigate(from, { replace: true });
     throw new Error(data.error || "Registration failed");
   }
 
-  localStorage.setItem("verifact_token", data.token);
-localStorage.setItem("verifact_user", JSON.stringify(data.user));
-
-await refreshProfile();
+  setSession(data.user, data.token);
 
 toast.success("Account created successfully");
 navigate(from, { replace: true });

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useScans, type Scan } from "@/hooks/useScans";
+import { type Scan } from "@/hooks/useScans";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import exifr from "exifr";
 import { analyzeImageForensics, type ForensicBundle } from "@/lib/forensicSignals";
@@ -160,21 +159,23 @@ useEffect(() => {
   const loaderProgress = imageState.progress;
   const result = imageState.result as ImageResult | null;
 
-  const runAnalysis = async (
+  const runAnalysis = useCallback(async (
     imageData: string,
     signals?: { exif?: ExifInfo; compression?: CompressionInfo; dimensions?: { width: number; height: number }; mime?: string },
     forensicBundle?: ForensicBundle | null,
   ) => {
     setLocalSelectedImage(imageData);
     runImageAnalysis(imageData, signals, forensicBundle);
-  };
+  }, [runImageAnalysis]);
 
  const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
-  if (!file.type.startsWith("image/")) {
-    toast.error("Please upload an image file");
+  e.target.value = "";
+
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    toast.error("Please upload a PNG, JPG, or WEBP image");
     return;
   }
 
@@ -183,8 +184,13 @@ useEffect(() => {
   const reader = new FileReader();
 
   reader.onload = async (ev) => {
-    const dataUrl = ev.target?.result as string;
-    setLocalSelectedImage(dataUrl);
+    try {
+      const dataUrl = typeof ev.target?.result === "string" ? ev.target.result : "";
+      if (!dataUrl) {
+        throw new Error("The selected image could not be read.");
+      }
+
+      setLocalSelectedImage(dataUrl);
 
     const dims = await new Promise<{ width: number; height: number }>((resolve) => {
       const img = new Image();
@@ -220,20 +226,28 @@ useEffect(() => {
     const forensicBundle = await analyzeImageForensics(dataUrl);
     setForensics(forensicBundle);
 
-    runAnalysis(
-      dataUrl,
-      {
-        exif,
-        compression: comp,
-        dimensions: dims,
-        mime: file.type,
-      },
-      forensicBundle
-    );
+      runAnalysis(
+        dataUrl,
+        {
+          exif,
+          compression: comp,
+          dimensions: dims,
+          mime: file.type,
+        },
+        forensicBundle
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The selected image could not be processed.";
+      toast.error(message);
+    }
+  };
+
+  reader.onerror = () => {
+    toast.error("The selected image could not be read.");
   };
 
   reader.readAsDataURL(file);
-}, [runImageAnalysis]);
+}, [runAnalysis]);
 
   /* ── Share / PDF ───────────────────────────── */
   const buildScanForReport = (): Scan | null => {
@@ -372,6 +386,12 @@ useEffect(() => {
           </div>
         </div>
       </Card>
+
+      {imageState.error && !isAnalyzing && (
+        <Card className="glass-panel p-4 border-destructive/40 text-destructive">
+          {imageState.error}
+        </Card>
+      )}
 
       {/* ── Premium Loading State ──────────────── */}
       <AnimatePresence>

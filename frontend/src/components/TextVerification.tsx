@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { useScans } from "@/hooks/useScans";
-import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -74,8 +72,6 @@ import { useAnalysis } from "@/contexts/AnalysisContext";
 export const TextVerification = () => {
   const { textState, runTextAnalysis } = useAnalysis();
   const [text, setText] = useState(textState.input || "");
-  const { user } = useAuth();
-  const { saveScan } = useScans();
 
   const isAnalyzing = textState.isAnalyzing;
   const result = textState.result;
@@ -142,6 +138,12 @@ export const TextVerification = () => {
           </div>
           <Progress value={textState.progress} className="h-3 glass-panel" />
           <div className="text-center text-xs font-medium">{textState.progress}%</div>
+        </Card>
+      )}
+
+      {textState.error && !isAnalyzing && (
+        <Card className="glass-panel p-4 border-destructive/40 text-destructive">
+          {textState.error}
         </Card>
       )}
 

@@ -4,19 +4,48 @@ import express from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
-dotenv.config();
+const BACKEND_DIR = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: join(BACKEND_DIR, ".env") });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const HOST = "0.0.0.0";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/verifact";
 const DB_NAME = process.env.DB_NAME || "verifact";
-const JWT_SECRET = process.env.JWT_SECRET || "verifact-local-secret";
-app.use(cors({ origin: "*" }));
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required");
+}
+const allowedOrigins = new Set(
+  (process.env.FRONTEND_ORIGINS || [
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+  ].join(","))
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
+}));
 app.use(express.json({ limit: "50mb" }));
 
 let db = null;
+let mongoClient = null;
 
 // Helper to extract client IP and user agent
 function getClientMeta(req) {
@@ -26,68 +55,85 @@ function getClientMeta(req) {
   return { ip, userAgent, origin };
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
+
+function normalizeEmail(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function logInternalError(context, error) {
+  console.error(context, error instanceof Error ? error.name : "UnknownError");
+}
+
+function getAuthenticatedUser(req) {
+  const authorization = req.headers.authorization;
+  if (!authorization || !authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  if (!token) return null;
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload && typeof payload === "object" && typeof payload.id === "string"
+      ? payload
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function requireAuthenticatedUser(req, res, next) {
+  const user = getAuthenticatedUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  req.authenticatedUser = user;
+  return next();
+}
+
+async function recordAuthActivity(req, { userId, email, displayName, event }) {
+  if (!db) return;
+
+  const meta = getClientMeta(req);
+  const timestamp = new Date().toISOString();
+  await db.collection("user_sessions").insertOne({
+    user_id: userId,
+    email,
+    display_name: displayName || "User",
+    event,
+    ip: meta.ip,
+    user_agent: meta.userAgent,
+    origin: meta.origin,
+    timestamp,
+  });
+
+  await db.collection("access_logs").insertOne({
+    type: "authentication",
+    user_id: userId,
+    email,
+    event,
+    ip: meta.ip,
+    origin: meta.origin,
+    timestamp,
+  });
+}
+
 async function initMongoDB() {
   try {
-    const client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    db = client.db(DB_NAME);
-    console.log(`✅ Connected to MongoDB Compass at: ${MONGODB_URI}`);
-    console.log(`📂 Database: ${DB_NAME} | Collections: scans, users, analysis_logs, user_sessions, access_logs`);
+    mongoClient = new MongoClient(MONGODB_URI);
+    await mongoClient.connect();
+    db = mongoClient.db(DB_NAME);
+    await db.command({ ping: 1 });
+    const collections = await db.listCollections({}, { nameOnly: true }).toArray();
+    console.log(`✅ Connected to MongoDB database: ${DB_NAME}`);
+    console.log(`📂 Collections available: ${collections.map(({ name }) => name).join(", ") || "none"}`);
 
-    // 1. Ensure 'scans' collection exists
-    const scansColl = db.collection("scans");
-    if ((await scansColl.countDocuments()) === 0) {
-      await scansColl.insertOne({
-        scan_type: "text",
-        input_label: "Welcome to VeriFact MongoDB Compass Connection",
-        verdict: "authentic",
-        confidence: 98,
-        details: { note: "MongoDB Compass scans collection successfully initialized." },
-        client_ip: "127.0.0.1",
-        created_at: new Date().toISOString(),
-      });
-      console.log("📌 Initialized MongoDB Compass 'scans' collection.");
-    }
-
-    // 2. Ensure 'users' collection exists
-    const usersColl = db.collection("users");
-    if ((await usersColl.countDocuments()) === 0) {
-      await usersColl.insertOne({
-        email: "user@verifact.ai",
-        display_name: "Forensic Analyst",
-        role: "investigator",
-        last_ip: "127.0.0.1",
-        created_at: new Date().toISOString(),
-      });
-      console.log("📌 Initialized MongoDB Compass 'users' collection.");
-    }
-
-    // 3. Ensure 'user_sessions' collection exists
-    const sessionsColl = db.collection("user_sessions");
-    if ((await sessionsColl.countDocuments()) === 0) {
-      await sessionsColl.insertOne({
-        session_event: "system_init",
-        user_id: "system",
-        ip: "127.0.0.1",
-        user_agent: "VeriFact Core Server",
-        timestamp: new Date().toISOString(),
-      });
-      console.log("📌 Initialized MongoDB Compass 'user_sessions' collection.");
-    }
-
-    // 4. Ensure 'access_logs' collection exists
-    const accessColl = db.collection("access_logs");
-    if ((await accessColl.countDocuments()) === 0) {
-      await accessColl.insertOne({
-        event: "server_boot",
-        host: HOST,
-        port: PORT,
-        timestamp: new Date().toISOString(),
-      });
-      console.log("📌 Initialized MongoDB Compass 'access_logs' collection.");
-    }
   } catch (err) {
-    console.error("❌ MongoDB Compass Connection Error:", err.message);
+    logInternalError("MongoDB connection error:", err);
   }
 }
 
@@ -123,22 +169,28 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Fetch all scans from MongoDB Compass
-app.get("/api/scans", async (req, res) => {
+// Fetch only the authenticated user's scans from MongoDB.
+app.get("/api/scans", requireAuthenticatedUser, async (req, res) => {
   try {
     if (!db) return res.status(503).json({ error: "Database not connected" });
-    const userId = req.query.user_id;
+    const userId = typeof req.query.user_id === "string" ? req.query.user_id.trim() : "";
 
-const query = userId ? { user_id: userId } : {};
+    if (!userId) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
 
-const scans = await db.collection("scans")
-  .find(query)
+    if (userId !== req.authenticatedUser.id) {
+      return res.status(403).json({ error: "You can only access your own scans" });
+    }
+
+    const scans = await db.collection("scans")
+  .find({ user_id: req.authenticatedUser.id })
   .sort({ created_at: -1 })
   .limit(100)
   .toArray();
     const formatted = scans.map((s) => ({
       id: s._id.toString(),
-      user_id: s.user_id || "local-user",
+      user_id: s.user_id,
       scan_type: s.scan_type,
       input_label: s.input_label,
       file_path: s.file_path || null,
@@ -153,32 +205,54 @@ const scans = await db.collection("scans")
     }));
     res.json(formatted);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("Fetch scans error:", err);
+    res.status(500).json({ error: "Unable to fetch scans" });
   }
 });
 
-// Save scan to MongoDB Compass (with client IP & device metadata)
+// Save a scan to MongoDB (with client IP & device metadata).
 app.post("/api/scans", async (req, res) => {
   try {
     if (!db) return res.status(503).json({ error: "Database not connected" });
+
+    const authorization = req.headers.authorization;
+    const authenticatedUser = getAuthenticatedUser(req);
+    if (authorization && !authenticatedUser) {
+      return res.status(401).json({ error: "Invalid or expired authentication token" });
+    }
+
+    const requestedUserId = typeof req.body?.user_id === "string"
+      ? req.body.user_id.trim()
+      : "";
+
+    if (authenticatedUser) {
+      if (requestedUserId && requestedUserId !== authenticatedUser.id) {
+        return res.status(403).json({ error: "You can only save scans for your own account" });
+      }
+    } else if (requestedUserId !== "guest-user") {
+      return res.status(401).json({ error: "Authentication required for user scans" });
+    }
+
     const meta = getClientMeta(req);
+    const { user_id: _requestedUserId, ...scanBody } = req.body || {};
     const newScan = {
-      ...req.body,
+      ...scanBody,
+      user_id: authenticatedUser?.id || "guest-user",
       client_ip: meta.ip,
       user_agent: meta.userAgent,
       origin: meta.origin,
-      created_at: req.body.created_at || new Date().toISOString(),
+      created_at: req.body?.created_at || new Date().toISOString(),
     };
     const result = await db.collection("scans").insertOne(newScan);
     res.json({ id: result.insertedId.toString(), ...newScan });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("Save scan error:", err);
+    res.status(500).json({ error: "Unable to save scan" });
   }
 });
 
-// Delete scan from MongoDB Compass
-// Delete scan from MongoDB
-app.delete("/api/scans/:id", async (req, res) => {
+// Delete only a scan owned by the authenticated user.
+app.delete("/api/scans/:id", requireAuthenticatedUser, async (req, res) => {
   try {
     if (!db) {
       return res.status(503).json({
@@ -196,6 +270,7 @@ app.delete("/api/scans/:id", async (req, res) => {
 
     const result = await db.collection("scans").deleteOne({
       _id: new ObjectId(req.params.id),
+      user_id: req.authenticatedUser.id,
     });
 
     if (result.deletedCount === 0) {
@@ -209,10 +284,9 @@ app.delete("/api/scans/:id", async (req, res) => {
       message: "Scan deleted successfully",
     });
   } catch (err) {
-    console.error("Delete scan error:", err);
-
+    logInternalError("Delete scan error:", err);
     res.status(500).json({
-      error: err.message,
+      error: "Unable to delete scan",
     });
   }
 });
@@ -222,8 +296,9 @@ app.post("/api/users", async (req, res) => {
   try {
     if (!db) return res.status(503).json({ error: "Database not connected" });
     const meta = getClientMeta(req);
+    const { password: _password, ...safeUserBody } = req.body || {};
     const userDoc = {
-      ...req.body,
+      ...safeUserBody,
       last_ip: meta.ip,
       user_agent: meta.userAgent,
       network_origin: meta.origin,
@@ -231,14 +306,14 @@ app.post("/api/users", async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    const query = req.body.email ? { email: req.body.email } : { id: req.body.id };
+    const query = safeUserBody.email ? { email: safeUserBody.email } : { id: safeUserBody.id };
     await db.collection("users").updateOne(query, { $set: userDoc }, { upsert: true });
 
     // Also record login session event into user_sessions collection
     await db.collection("user_sessions").insertOne({
-      user_id: req.body.id || req.body.email || "anonymous",
-      email: req.body.email || null,
-      display_name: req.body.display_name || "User",
+      user_id: safeUserBody.id || safeUserBody.email || "anonymous",
+      email: safeUserBody.email || null,
+      display_name: safeUserBody.display_name || "User",
       event: "login_activity",
       ip: meta.ip,
       user_agent: meta.userAgent,
@@ -248,7 +323,8 @@ app.post("/api/users", async (req, res) => {
 
     res.json({ success: true, user: userDoc });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("User activity error:", err);
+    res.status(500).json({ error: "Unable to record user activity" });
   }
 });
 
@@ -280,7 +356,8 @@ app.post("/api/auth/session", async (req, res) => {
 
     res.json({ success: true, session: sessionDoc });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("Session activity error:", err);
+    res.status(500).json({ error: "Unable to record session activity" });
   }
 });
 
@@ -299,7 +376,8 @@ app.post("/api/logs", async (req, res) => {
     await db.collection("analysis_logs").insertOne(logDoc);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("Analysis log error:", err);
+    res.status(500).json({ error: "Unable to record analysis log" });
   }
 });
 
@@ -335,7 +413,8 @@ app.post("/api/eval", async (req, res) => {
 
     res.json({ success: true, evaluation: evalDoc });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logInternalError("Evaluation error:", err);
+    res.status(500).json({ error: "Unable to record evaluation" });
   }
 });
 // ===============================
@@ -349,12 +428,22 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(503).json({ error: "Database not connected" });
     }
 
-    const { email, password, display_name } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    const displayName = typeof req.body?.display_name === "string" ? req.body.display_name.trim() : "";
 
-    if (!email || !password) {
+    if (!displayName || !email || !password) {
       return res.status(400).json({
-        error: "Email and password are required",
+        error: "Display name, email, and password are required",
       });
+    }
+
+    if (!EMAIL_PATTERN.test(email)) {
+      return res.status(400).json({ error: "Enter a valid email address" });
+    }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     }
 
     const users = db.collection("users");
@@ -372,31 +461,40 @@ app.post("/api/auth/register", async (req, res) => {
     const newUser = {
       email,
       password: hashedPassword,
-      display_name: display_name || "User",
+      display_name: displayName,
       created_at: new Date().toISOString(),
     };
 
     const result = await users.insertOne(newUser);
+    const userId = result.insertedId.toString();
+
+    await recordAuthActivity(req, {
+      userId,
+      email,
+      displayName,
+      event: "register",
+    });
 
     const token = jwt.sign(
       {
-        id: result.insertedId.toString(),
+        id: userId,
         email,
+        display_name: displayName,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.json({
+    res.status(201).json({
       token,
       user: {
-        id: result.insertedId.toString(),
+        id: userId,
         email,
-        display_name: newUser.display_name,
+        display_name: displayName,
       },
     });
   } catch (err) {
-    console.error("Register error:", err);
+    logInternalError("Register error:", err);
     res.status(500).json({
       error: "Registration failed",
     });
@@ -413,7 +511,8 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body?.email);
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
 
     if (!email || !password) {
       return res.status(400).json({
@@ -421,11 +520,15 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
+    if (!EMAIL_PATTERN.test(email)) {
+      return res.status(400).json({ error: "Enter a valid email address" });
+    }
+
     const users = db.collection("users");
 
     const user = await users.findOne({ email });
 
-    if (!user) {
+    if (!user || typeof user.password !== "string") {
       return res.status(401).json({
         error: "Invalid email or password",
       });
@@ -442,10 +545,23 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
+    const userId = user._id.toString();
+    const displayName = typeof user.display_name === "string" && user.display_name.trim()
+      ? user.display_name.trim()
+      : "User";
+
+    await recordAuthActivity(req, {
+      userId,
+      email: user.email,
+      displayName,
+      event: "login",
+    });
+
     const token = jwt.sign(
       {
-        id: user._id.toString(),
+        id: userId,
         email: user.email,
+        display_name: displayName,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
@@ -454,13 +570,13 @@ app.post("/api/auth/login", async (req, res) => {
     res.json({
       token,
       user: {
-        id: user._id.toString(),
+        id: userId,
         email: user.email,
-        display_name: user.display_name || "User",
+        display_name: displayName,
       },
     });
   } catch (err) {
-    console.error("Login error:", err);
+    logInternalError("Login error:", err);
 
     res.status(500).json({
       error: "Login failed",
@@ -473,7 +589,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.post("/api/analyze/text", async (req, res) => {
   try {
-    const { text } = req.body;
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
 
     if (!text) {
       return res.status(400).json({

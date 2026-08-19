@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "./AuthContext";
+import { API_BASE_URL } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { computeContentHash, getCachedResult, setCachedResult } from "@/lib/cacheManager";
 import { buildForensicEnsemble, type EnsembleVerificationResult } from "@/lib/forensicEnsemble";
@@ -126,7 +127,7 @@ interface AnalysisContextValue {
 const AnalysisContext = createContext<AnalysisContextValue | undefined>(undefined);
 
 export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [activeModule, setActiveModule] = useState<AnalysisMode>("text");
 
   const [textState, setTextState] = useState<AnalysisState<string>>(initialModuleState);
@@ -154,31 +155,43 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   verdict: verdict || "unknown",
   confidence: Number(confidence) || 0,
 
-  source_type: "image",
+  source_type: scanType,
   details: details || {},
   effects: [],
   created_at: new Date().toISOString(),
 };
 
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   // Save scan to local MongoDB backend
   try {
-    await fetch("http://localhost:5000/api/scans", {
+    const response = await fetch(`${API_BASE_URL}/api/scans`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders,
       },
       body: JSON.stringify(payload),
     });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(errorBody?.error || "Unable to save the scan");
+    }
   } catch (error) {
     console.error("MongoDB scan save failed:", error);
+    if (scanType === "image" || scanType === "text") {
+      throw new Error("Analysis completed, but the scan could not be saved. Please try again.");
+    }
   }
 
   // Save analysis log to local MongoDB backend
   try {
-    await fetch("http://localhost:5000/api/logs", {
+    const response = await fetch(`${API_BASE_URL}/api/logs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders,
       },
       body: JSON.stringify({
         log_type: "forensic_scan",
@@ -189,6 +202,10 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
         user_id: user?.id || "guest",
       }),
     });
+
+    if (!response.ok) {
+      throw new Error("Unable to save the analysis log");
+    }
   } catch (error) {
     console.error("MongoDB log save failed:", error);
   }
@@ -228,7 +245,7 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
     const timer = simulateProgress(setTextState, ["Extracting claims...", "Searching news agencies...", "Cross-checking facts...", "Finalizing verdict..."], 800);
 
     try {
-      const response = await fetch("http://localhost:5000/api/analyze/text", {
+      const response = await fetch(`${API_BASE_URL}/api/analyze/text`, {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -236,10 +253,14 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   body: JSON.stringify({ text }),
 });
 
-const data = await response.json();
+const data = await response.json().catch(() => null);
 
 if (!response.ok) {
-  throw new Error(data.error || "Text analysis failed");
+  throw new Error(data?.error || "Text analysis failed");
+}
+
+if (!data || typeof data !== "object") {
+  throw new Error("Text analysis returned an invalid response");
 }
       clearInterval(timer);
       const elapsedMs = Math.round(performance.now() - startTime);
@@ -260,7 +281,7 @@ if (!response.ok) {
         result: enrichedData,
       }));
 
-      saveScanToDb("text", text, enrichedData.category, enrichedData.confidence, enrichedData);
+      await saveScanToDb("text", text, enrichedData.category, enrichedData.confidence, enrichedData);
       toast.success(`Text Analysis completed in ${elapsedMs}ms!`);
     } catch (err) {
       clearInterval(timer);
@@ -271,7 +292,7 @@ if (!response.ok) {
         progress: 0,
         statusText: "",
         error: msg,
-        result: { isAuthentic: false, confidence: 0, category: "fake", analysis: "An error occurred during analysis. Please try again." },
+        result: null,
       }));
       toast.error("Text analysis failed: " + msg);
     }
@@ -324,18 +345,19 @@ try {
   formData.append("file", imageBlob, "verification-image.jpg");
 
   // Send image to local Python ML API
-  console.info("[Image ML] Request", {
-    url: mlUrl,
-    method: "POST",
-    field: "file",
-    contentType: imageBlob.type,
-    size: imageBlob.size,
-  });
+  const mlController = new AbortController();
+  const mlTimeout = window.setTimeout(() => mlController.abort(), 120_000);
+  let mlResponse: Response;
 
-  const mlResponse = await fetch(mlUrl, {
-    method: "POST",
-    body: formData,
-  });
+  try {
+    mlResponse = await fetch(mlUrl, {
+      method: "POST",
+      body: formData,
+      signal: mlController.signal,
+    });
+  } finally {
+    window.clearTimeout(mlTimeout);
+  }
 
   const responseText = await mlResponse.text();
   let mlData: unknown = null;
@@ -344,13 +366,6 @@ try {
   } catch {
     // Preserve the raw body in the error below for easier local debugging.
   }
-
-  console.info("[Image ML] Response", {
-    url: mlUrl,
-    status: mlResponse.status,
-    ok: mlResponse.ok,
-  });
-  console.info("[Image ML] Response JSON", mlData ?? responseText);
 
   if (!mlResponse.ok) {
     throw new Error(
@@ -389,18 +404,13 @@ try {
       regions: [],
     };
 
-    console.log("Pretrained ML model result:", aiResponse);
   } else {
     throw new Error(
       `ML API returned an unexpected response shape: ${responseText || "empty response"}`
     );
   }
 } catch (e) {
-  console.error("[Image ML] Request failed", {
-    url: mlUrl,
-    message: e instanceof Error ? e.message : String(e),
-    error: e,
-  });
+  console.error("[Image ML] Request failed");
 
   throw e;
 }
@@ -587,15 +597,7 @@ modelUsed:
         progress: 0,
         statusText: "",
         error: msg,
-        result: {
-          isAuthentic: false,
-          confidence: 0,
-          category: "suspicious",
-          verdict: "Suspicious",
-          sourceType: "camera",
-          analysis: "An error occurred during analysis.",
-          detectionScores: { aiGeneration: 0, splicing: 0, lighting: 0, metadata: 0 },
-        },
+        result: null,
       }));
       toast.error("Image analysis failed: " + msg);
     }
