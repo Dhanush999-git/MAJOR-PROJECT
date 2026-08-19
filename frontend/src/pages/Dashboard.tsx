@@ -12,6 +12,7 @@ import { motion } from "framer-motion";
 import { generateForensicReport } from "@/lib/forensicReport";
 import { toast } from "sonner";
 import { Seo } from "@/components/Seo";
+import type { DynamicRecord } from "@/lib/analysisTypes";
 import {
   RadarChart,
   PolarGrid,
@@ -87,7 +88,7 @@ const Dashboard = () => {
   const stats = useMemo(() => {
     const total = scans.length;
     const suspicious = scans.filter(s => {
-      const d = s.details as any;
+      const d = s.details;
       const cat = String(d?.category || "").toLowerCase();
       const verd = String(s.verdict || d?.verdict || "").toLowerCase();
       return cat === "suspicious" || cat === "manipulated" || cat === "fake" || verd.includes("fake") || verd.includes("suspicious") || verd.includes("manipulated");
@@ -97,7 +98,10 @@ const Dashboard = () => {
       : "—";
 
     const byType = { image: 0, text: 0, video: 0, url: 0 };
-    scans.forEach(s => { if (s.scan_type in byType) (byType as any)[s.scan_type]++; });
+    scans.forEach(s => {
+      const type = s.scan_type as keyof typeof byType;
+      if (type in byType) byType[type]++;
+    });
 
     const avgConfidence = total
       ? Math.round(scans.reduce((a, s) => a + (s.confidence ?? 95), 0) / total)
@@ -107,7 +111,7 @@ const Dashboard = () => {
       ? 98
       : Math.round(
           scans.reduce((sum, s) => {
-            const d = s.details as any;
+            const d = s.details;
             const cat = String(d?.category || "").toLowerCase();
             const verd = String(s.verdict || d?.verdict || d?.verdictTag || "").toLowerCase();
             const isAuthentic = (
@@ -229,7 +233,7 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground">{new Date(scan.created_at).toLocaleString()}</p>
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[(scan.details as any)?.category] || ""}`}>
+                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[typeof (scan.details as DynamicRecord).category === "string" ? scan.details.category : ""] || ""}`}>
                         {scan.verdict || "—"}
                       </p>
                       {scan.confidence != null && (
@@ -266,4 +270,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-

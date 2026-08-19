@@ -67,8 +67,9 @@ function fft(re: Float32Array, im: Float32Array) {
 export async function analyzeVideoAudio(file: File): Promise<VideoAudioSignals> {
   try {
     const arrayBuf = await file.arrayBuffer();
-    const Ctx: typeof OfflineAudioContext =
-      (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+    const audioWindow = window as Window & { webkitOfflineAudioContext?: typeof OfflineAudioContext };
+    const Ctx: typeof OfflineAudioContext | undefined =
+      window.OfflineAudioContext || audioWindow.webkitOfflineAudioContext;
     if (!Ctx) return { hasAudio: false };
 
     // Decode at a low sample rate to keep it fast.

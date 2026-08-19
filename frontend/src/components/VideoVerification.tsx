@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { analyzeVideoAudio, type VideoAudioSignals } from "@/lib/videoAudioSignals";
 import { generateForensicReport } from "@/lib/forensicReport";
 import { useAnalysis } from "@/contexts/AnalysisContext";
+import type { SpeedMetrics } from "@/lib/analysisTypes";
 
 /* ── Types ─────────────────────────────────── */
 interface DetectionScores {
@@ -53,7 +54,7 @@ interface VideoResult {
   voice?: VoiceSummary;
   timeline?: TimelineEvent[];
   frameFlags?: string[];
-  speedMetrics?: any;
+  speedMetrics?: SpeedMetrics;
   executionTimeMs?: number;
 }
 

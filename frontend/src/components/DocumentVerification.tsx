@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import exifr from "exifr";
 import { generateForensicReport } from "@/lib/forensicReport";
+import type { DynamicRecord, SpeedMetrics } from "@/lib/analysisTypes";
 
 interface Region { label: string; x: number; y: number; w: number; h: number; severity: "low" | "medium" | "high"; page?: number; }
 interface MetadataFinding { field: string; value: string; risk: "low" | "medium" | "high"; note?: string; }
@@ -33,7 +34,7 @@ interface DocResult {
   extractedFields?: ExtractedField[];
   regions?: Region[];
   analysis?: string;
-  speedMetrics?: any;
+  speedMetrics?: SpeedMetrics;
   executionTimeMs?: number;
 }
 
@@ -71,7 +72,7 @@ async function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function extractPdfMeta(buf: ArrayBuffer): Promise<Record<string, any>> {
+async function extractPdfMeta(buf: ArrayBuffer): Promise<DynamicRecord> {
   try {
     const text = new TextDecoder("latin1").decode(new Uint8Array(buf).slice(0, 65536));
     const grab = (k: string) => {
@@ -150,7 +151,7 @@ export const DocumentVerification = () => {
     return {
       id: crypto.randomUUID(),
       user_id: user?.id ?? "anonymous",
-      scan_type: "document" as any,
+      scan_type: "document",
       input_label: file.name,
       file_path: null,
       verdict: result.verdict,
@@ -161,7 +162,7 @@ export const DocumentVerification = () => {
         aiExplanation: result.plainExplanation || result.analysis,
         scores: result.detectionBreakdown,
       },
-      effects: (result.metadataFindings ?? []) as any[],
+      effects: result.metadataFindings ?? [],
       created_at: new Date().toISOString(),
     } as Scan;
   };

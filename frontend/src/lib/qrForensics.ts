@@ -67,7 +67,7 @@ export interface QrForensicReport {
   physicalTampering: PhysicalQrAnalysis;
   plainExplanation: string;
   modelVersion: string;
-  speedMetrics?: any;
+  speedMetrics?: import("@/lib/analysisTypes").SpeedMetrics;
   executionTimeMs?: number;
 }
 
@@ -93,7 +93,7 @@ const KNOWN_BRANDS: Record<string, string[]> = {
  * Parses and de-obfuscates raw QR payload string.
  */
 export function deobfuscatePayload(raw: string): { payload: string; wasObfuscated: boolean; type?: QrForensicReport["obfuscationType"] } {
-  let cleaned = raw.trim();
+  const cleaned = raw.trim();
 
   // Multi-URL decoding check
   if (cleaned.includes("%20") || cleaned.includes("%3A") || cleaned.includes("%2F")) {
@@ -102,7 +102,9 @@ export function deobfuscatePayload(raw: string): { payload: string; wasObfuscate
       if (decoded !== cleaned) {
         return { payload: decoded, wasObfuscated: true, type: "Multi-URL Encoding" };
       }
-    } catch {}
+      } catch {
+        // Ignore malformed URI encoding and continue with the next decoder.
+      }
   }
 
   // Base64 decoding check
@@ -112,7 +114,9 @@ export function deobfuscatePayload(raw: string): { payload: string; wasObfuscate
       if (/^[\x20-\x7E]+$/.test(decoded) && (decoded.includes("http") || decoded.includes("upi:") || decoded.includes("WIFI:"))) {
         return { payload: decoded, wasObfuscated: true, type: "Base64" };
       }
-    } catch {}
+      } catch {
+        // Ignore malformed Base64 payloads.
+      }
   }
 
   // Hexadecimal check
@@ -125,7 +129,9 @@ export function deobfuscatePayload(raw: string): { payload: string; wasObfuscate
       if (/^[\x20-\x7E]+$/.test(str) && (str.includes("http") || str.includes("upi:"))) {
         return { payload: str, wasObfuscated: true, type: "Hexadecimal" };
       }
-    } catch {}
+      } catch {
+        // Ignore malformed hexadecimal payloads.
+      }
   }
 
   return { payload: cleaned, wasObfuscated: false };

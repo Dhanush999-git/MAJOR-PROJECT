@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import type { SpeedMetrics } from "@/lib/analysisTypes";
 
 interface ForensicScores {
   syntheticSpeech: number;
@@ -51,7 +52,7 @@ interface AudioResult {
     summary: string;
   };
   aiExplanation?: string;
-  speedMetrics?: any;
+  speedMetrics?: SpeedMetrics;
   executionTimeMs?: number;
 }
 

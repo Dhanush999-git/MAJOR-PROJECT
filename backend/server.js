@@ -127,7 +127,15 @@ app.get("/api/health", (req, res) => {
 app.get("/api/scans", async (req, res) => {
   try {
     if (!db) return res.status(503).json({ error: "Database not connected" });
-    const scans = await db.collection("scans").find().sort({ created_at: -1 }).limit(100).toArray();
+    const userId = req.query.user_id;
+
+const query = userId ? { user_id: userId } : {};
+
+const scans = await db.collection("scans")
+  .find(query)
+  .sort({ created_at: -1 })
+  .limit(100)
+  .toArray();
     const formatted = scans.map((s) => ({
       id: s._id.toString(),
       user_id: s.user_id || "local-user",
@@ -169,13 +177,43 @@ app.post("/api/scans", async (req, res) => {
 });
 
 // Delete scan from MongoDB Compass
+// Delete scan from MongoDB
 app.delete("/api/scans/:id", async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: "Database not connected" });
-    await db.collection("scans").deleteOne({ _id: req.params.id });
-    res.json({ success: true });
+    if (!db) {
+      return res.status(503).json({
+        error: "Database not connected",
+      });
+    }
+
+    const { ObjectId } = await import("mongodb");
+
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        error: "Invalid scan ID",
+      });
+    }
+
+    const result = await db.collection("scans").deleteOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        error: "Scan not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Scan deleted successfully",
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Delete scan error:", err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 

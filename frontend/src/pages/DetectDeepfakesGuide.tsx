@@ -16,6 +16,7 @@ import {
   Sparkles,
   AlertTriangle,
   ArrowRight,
+  type LucideIcon,
 } from "lucide-react";
 
 
@@ -73,7 +74,7 @@ const Step = ({
   children,
 }: {
   n: number;
-  icon: any;
+  icon: LucideIcon;
   title: string;
   children: React.ReactNode;
 }) => (

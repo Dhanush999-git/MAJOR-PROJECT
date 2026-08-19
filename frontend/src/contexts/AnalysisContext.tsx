@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "./AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { computeContentHash, getCachedResult, setCachedResult } from "@/lib/cacheManager";
 import { buildForensicEnsemble, type EnsembleVerificationResult } from "@/lib/forensicEnsemble";
+import type { ForensicBundle } from "@/lib/forensicSignals";
 import { decodeQrImage, type PhysicalQrAnalysis } from "@/lib/qrDecoder";
-import { analyzeQrForensics, type QrForensicReport } from "@/lib/qrForensics";
+import { analyzeQrForensics, type QrForensicReport, type QrRiskLevel } from "@/lib/qrForensics";
+import type { SpeedMetrics } from "@/lib/analysisTypes";
 
 export type AnalysisMode = "text" | "image" | "video" | "audio" | "url" | "document" | "qr";
 
@@ -18,12 +21,67 @@ interface SpecialistModelResult {
   regions?: unknown[];
 }
 
+type JsonRecord = Record<string, unknown>;
+
+interface ImageAnalysisSignals {
+  exif?: { make?: string; model?: string; software?: string };
+  compression?: { megapixels?: number; bytesPerPixel?: number };
+  dimensions?: { width: number; height: number };
+  mime?: string;
+}
+
+interface VideoAnalysisInput extends JsonRecord {
+  frames?: unknown[];
+  audio?: unknown;
+  durationSec?: number;
+  src?: string;
+}
+
+interface AudioAnalysisInput {
+  audioBase64: string;
+  mimeType: string;
+  filename: string;
+}
+
+interface DocumentAnalysisInput {
+  fileData: string;
+  mime: string;
+  filename: string;
+}
+
+interface ImageAnalysisResult extends EnsembleVerificationResult {
+  isAuthentic?: boolean;
+  verdict?: string;
+  fakeProbability?: number;
+  realProbability?: number;
+  model?: string;
+  specialistModelResult?: SpecialistModelResult | null;
+  forensicEvidence?: EnsembleVerificationResult;
+  modelUsed?: string;
+  analysis?: string;
+  detectionScores?: Record<string, number>;
+  speedMetrics?: SpeedMetrics;
+  executionTimeMs?: number;
+  isProgressive?: boolean;
+}
+
+interface QrAiResponse {
+  verdict?: QrForensicReport["verdict"];
+  securityScore?: number;
+  riskLevel?: QrRiskLevel;
+  recommendedAction?: QrForensicReport["recommendedAction"];
+  analysis?: string;
+}
+
 const asFiniteNumber = (value: unknown): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-export interface AnalysisState<TInput = any, TResult = any, TExtra = any> {
+// Analysis responses come from several independently deployed services. Components
+// narrow each response to its mode-specific shape before rendering it.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface AnalysisState<TInput = unknown, TResult = any, TExtra = unknown> {
   isAnalyzing: boolean;
   progress: number;
   statusText: string;
@@ -33,7 +91,7 @@ export interface AnalysisState<TInput = any, TResult = any, TExtra = any> {
   error?: string | null;
 }
 
-const initialModuleState: AnalysisState = {
+const initialModuleState = {
   isAnalyzing: false,
   progress: 0,
   statusText: "",
@@ -48,17 +106,17 @@ interface AnalysisContextValue {
   setActiveModule: (mode: AnalysisMode) => void;
   textState: AnalysisState<string>;
   imageState: AnalysisState<string>;
-  videoState: AnalysisState<any>;
-  audioState: AnalysisState<{ audioBase64: string; mimeType: string; filename: string }>;
-  documentState: AnalysisState<{ fileData: string; mime: string; filename: string }>;
+  videoState: AnalysisState<VideoAnalysisInput>;
+  audioState: AnalysisState<AudioAnalysisInput>;
+  documentState: AnalysisState<DocumentAnalysisInput>;
   urlState: AnalysisState<string>;
-  qrState: AnalysisState<any>;
+  qrState: AnalysisState<string, QrForensicReport>;
 
   runTextAnalysis: (text: string) => Promise<void>;
-  runImageAnalysis: (imageData: string, signals?: any, forensics?: any) => Promise<void>;
-  runVideoAnalysis: (body: any) => Promise<void>;
+  runImageAnalysis: (imageData: string, signals?: ImageAnalysisSignals, forensics?: ForensicBundle | null) => Promise<void>;
+  runVideoAnalysis: (body: VideoAnalysisInput) => Promise<void>;
   runAudioAnalysis: (audioBase64: string, mimeType: string, filename: string) => Promise<void>;
-  runDocumentAnalysis: (fileData: string, mime: string, filename: string, signals?: any) => Promise<void>;
+  runDocumentAnalysis: (fileData: string, mime: string, filename: string, signals?: JsonRecord) => Promise<void>;
   runUrlAnalysis: (url: string) => Promise<void>;
   runQrAnalysis: (qrInput: string | HTMLImageElement | HTMLCanvasElement, overrideRawText?: string) => Promise<void>;
 
@@ -73,18 +131,18 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
 
   const [textState, setTextState] = useState<AnalysisState<string>>(initialModuleState);
   const [imageState, setImageState] = useState<AnalysisState<string>>(initialModuleState);
-  const [videoState, setVideoState] = useState<AnalysisState<any>>(initialModuleState);
-  const [audioState, setAudioState] = useState<AnalysisState<any>>(initialModuleState);
-  const [documentState, setDocumentState] = useState<AnalysisState<any>>(initialModuleState);
+  const [videoState, setVideoState] = useState<AnalysisState<VideoAnalysisInput>>(initialModuleState);
+  const [audioState, setAudioState] = useState<AnalysisState<AudioAnalysisInput>>(initialModuleState);
+  const [documentState, setDocumentState] = useState<AnalysisState<DocumentAnalysisInput>>(initialModuleState);
   const [urlState, setUrlState] = useState<AnalysisState<string>>(initialModuleState);
-  const [qrState, setQrState] = useState<AnalysisState<any>>(initialModuleState);
+  const [qrState, setQrState] = useState<AnalysisState<string, QrForensicReport>>(initialModuleState);
 
   const saveScanToDb = async (
   scanType: string,
   label: string,
   verdict: string | null,
   confidence: number | null,
-  details: any
+  details: object
 ) => {
   const payload = {
   user_id: user?.id || "guest-user",
@@ -136,7 +194,11 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   }
 };
 
-  const simulateProgress = (setter: React.Dispatch<React.SetStateAction<AnalysisState>>, statuses: string[], durationMs: number = 1000) => {
+  const simulateProgress = <TInput, TResult, TExtra>(
+    setter: React.Dispatch<React.SetStateAction<AnalysisState<TInput, TResult, TExtra>>>,
+    statuses: string[],
+    durationMs: number = 1000,
+  ) => {
     const start = Date.now();
     const interval = setInterval(() => {
       const elapsed = Date.now() - start;
@@ -180,8 +242,6 @@ if (!response.ok) {
   throw new Error(data.error || "Text analysis failed");
 }
       clearInterval(timer);
-      if (error) throw error;
-
       const elapsedMs = Math.round(performance.now() - startTime);
       const speedMetrics = {
         totalMs: elapsedMs,
@@ -218,7 +278,7 @@ if (!response.ok) {
   };
 
   // 2. Image Analysis
-  const runImageAnalysis = async (imageData: string, signals?: any, forensics?: any) => {
+  const runImageAnalysis = async (imageData: string, signals?: ImageAnalysisSignals, forensics?: ForensicBundle | null) => {
     const startTime = performance.now();
 
     // 2. Start Progressive Analysis State
@@ -370,7 +430,7 @@ try {
       : 100 - specialistConfidence)
   : 0;
 
-      let finalEnsemble: any;
+      let finalEnsemble: ImageAnalysisResult;
 
       if (aiResponse) {
   finalEnsemble = {
@@ -542,7 +602,7 @@ modelUsed:
   };
 
   // 3. Video Analysis
-  const runVideoAnalysis = async (body: any) => {
+  const runVideoAnalysis = async (body: VideoAnalysisInput) => {
     const startTime = performance.now();
     setVideoState({
       isAnalyzing: true,
@@ -653,7 +713,7 @@ modelUsed:
   };
 
   // 5. Document Analysis
-  const runDocumentAnalysis = async (fileData: string, mime: string, filename: string, signals?: any) => {
+  const runDocumentAnalysis = async (fileData: string, mime: string, filename: string, signals?: JsonRecord) => {
     const startTime = performance.now();
     setDocumentState({
       isAnalyzing: true,
@@ -770,7 +830,7 @@ modelUsed:
 
     // 1. Instant Cache Check (sub-10ms)
     const contentHash = await computeContentHash(inputKey);
-    const cachedResult = getCachedResult<any>(contentHash, "qr");
+    const cachedResult = getCachedResult<QrForensicReport>(contentHash, "qr");
     if (cachedResult) {
       const cacheHitTime = Math.round(performance.now() - startTime);
       const enrichedCached = {
@@ -872,7 +932,7 @@ modelUsed:
       }));
 
       // 4. Invoke Edge Function for deep AI threat classification
-      let aiResponse: any = null;
+      let aiResponse: QrAiResponse | null = null;
       try {
         const res = await supabase.functions.invoke("verify-qr", {
           body: {
@@ -901,7 +961,7 @@ modelUsed:
         isCached: false,
       };
 
-      const finalReport: QrForensicReport & { speedMetrics: any; executionTimeMs: number } = {
+      const finalReport: QrForensicReport & { speedMetrics: SpeedMetrics; executionTimeMs: number } = {
         ...localReport,
         verdict: aiResponse?.verdict || localReport.verdict,
         securityScore: aiResponse?.securityScore != null ? Math.min(localReport.securityScore, aiResponse.securityScore) : localReport.securityScore,
@@ -948,7 +1008,7 @@ modelUsed:
           physicalTampering: { hasQr: false, rawText: null, isStickerOverlay: false, overlayConfidence: 0, alignmentConsistency: 0, boundaryNoiseStd: 0 },
           plainExplanation: "An error occurred during QR code analysis.",
           modelVersion: "QRThreatAI v2.4",
-        },
+        } as QrForensicReport,
       }));
       toast.error("QR code analysis failed: " + msg);
     }

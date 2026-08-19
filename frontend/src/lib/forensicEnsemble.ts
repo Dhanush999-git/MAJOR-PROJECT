@@ -1,5 +1,19 @@
 import { type ForensicBundle } from "./forensicSignals";
 
+interface ImageSignals {
+  exif?: { make?: string; model?: string; software?: string };
+  compression?: Record<string, unknown>;
+  dimensions?: { width: number; height: number };
+  mime?: string;
+}
+
+interface VisionAiResult {
+  confidence?: number;
+  category?: string;
+  verdict?: string;
+  analysis?: string;
+}
+
 export interface IndividualDetectorScore {
   id: string;
   name: string;
@@ -51,8 +65,8 @@ export interface EnsembleVerificationResult {
  */
 export function buildForensicEnsemble(
   forensics: ForensicBundle | null,
-  signals?: { exif?: any; compression?: any; dimensions?: { width: number; height: number }; mime?: string },
-  visionAIResult?: any
+  signals?: ImageSignals,
+  visionAIResult?: VisionAiResult
 ): EnsembleVerificationResult {
   const activeMethods: string[] = [];
 
@@ -105,14 +119,14 @@ export function buildForensicEnsemble(
   }
 
   // --- Detector 4: Vision AI Deep Feature Model ---
-  let visionScore = visionAIResult?.confidence != null
+  const visionScore = visionAIResult?.confidence != null
     ? (visionAIResult.category === "manipulated" || visionAIResult.verdict === "AI-Generated"
         ? Math.max(75, visionAIResult.confidence)
         : visionAIResult.category === "suspicious"
         ? 55
         : 100 - visionAIResult.confidence)
     : Math.round(fftScore * 0.4 + prnuScore * 0.4 + spatialScore * 0.2);
-  let visionDetail = visionAIResult?.analysis || "Deep visual pattern inspection";
+  const visionDetail = visionAIResult?.analysis || "Deep visual pattern inspection";
   activeMethods.push("Vision AI Neural Pattern Recognizer");
 
   // --- Detector 5: Metadata & Container Authenticity Checker ---

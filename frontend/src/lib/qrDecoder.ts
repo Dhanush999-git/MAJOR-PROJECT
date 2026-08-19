@@ -1,5 +1,13 @@
 import jsQR from "jsqr";
 
+interface BarcodeDetectorLike {
+  detect(source: CanvasImageSource): Promise<Array<{ rawValue: string; boundingBox: unknown }>>;
+}
+
+interface BarcodeDetectorWindow extends Window {
+  BarcodeDetector?: new (options: { formats: string[] }) => BarcodeDetectorLike;
+}
+
 export interface PhysicalQrAnalysis {
   hasQr: boolean;
   rawText: string | null;
@@ -46,9 +54,10 @@ export async function decodeQrImage(imageSource: HTMLImageElement | HTMLCanvasEl
   const imgData = ctx.getImageData(0, 0, width, height);
 
   // 1. Try native browser BarcodeDetector API if supported
-  if ("BarcodeDetector" in window) {
+  const BarcodeDetector = (window as BarcodeDetectorWindow).BarcodeDetector;
+  if (BarcodeDetector) {
     try {
-      const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+      const detector = new BarcodeDetector({ formats: ["qr_code"] });
       const barcodes = await detector.detect(canvas);
       if (barcodes && barcodes.length > 0) {
         const raw = barcodes[0].rawValue;
@@ -59,7 +68,9 @@ export async function decodeQrImage(imageSource: HTMLImageElement | HTMLCanvasEl
           ...physical,
         };
       }
-    } catch {}
+    } catch {
+      // Fall back to jsQR when the native detector cannot decode the image.
+    }
   }
 
   // 2. jsQR Fallback Decoder
@@ -98,7 +109,7 @@ export async function decodeQrImage(imageSource: HTMLImageElement | HTMLCanvasEl
 /**
  * Inspects background noise and boundary sharpness around QR pattern to detect physical sticker overlays.
  */
-function analyzePhysicalTampering(imgData: ImageData, location: any): Omit<PhysicalQrAnalysis, "hasQr" | "rawText"> {
+function analyzePhysicalTampering(imgData: ImageData, _location: unknown): Omit<PhysicalQrAnalysis, "hasQr" | "rawText"> {
   const { data, width, height } = imgData;
 
   // Measure variance of noise in border regions (sticker overlays usually have distinct border edge/shadow)

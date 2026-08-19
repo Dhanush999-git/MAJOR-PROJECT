@@ -4,6 +4,7 @@ import { ArrowLeft, FileText, Image as ImageIcon, Video, Mic, Link2, FileCheck2,
 import { Button } from "@/components/ui/button";
 import { AnalysisMode } from "@/contexts/AnalysisContext";
 import { cn } from "@/lib/utils";
+import type { LucideIcon } from "lucide-react";
 
 interface FloatingModeControlProps {
   currentMode: AnalysisMode;
@@ -11,7 +12,7 @@ interface FloatingModeControlProps {
   onSelectMode?: (mode: AnalysisMode) => void;
 }
 
-const MODES: { id: AnalysisMode; label: string; icon: any }[] = [
+const MODES: { id: AnalysisMode; label: string; icon: LucideIcon }[] = [
   { id: "text", label: "Text", icon: FileText },
   { id: "image", label: "Image", icon: ImageIcon },
   { id: "video", label: "Video", icon: Video },

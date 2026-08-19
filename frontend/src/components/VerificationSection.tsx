@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Image as ImageIcon, Video as VideoIcon, Mic, Link2, Menu, FileCheck2, QrCode } from "lucide-react";
+import { FileText, Image as ImageIcon, Video as VideoIcon, Mic, Link2, Menu, FileCheck2, QrCode, type LucideIcon } from "lucide-react";
 import { TextVerification } from "./TextVerification";
 import { ImageVerification } from "./ImageVerification";
 import { VideoVerification } from "./VideoVerification";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAnalysis, type AnalysisMode } from "@/contexts/AnalysisContext";
 
-const NAV: { id: AnalysisMode; label: string; icon: any; title: string; subtitle: string }[] = [
+const NAV: { id: AnalysisMode; label: string; icon: LucideIcon; title: string; subtitle: string }[] = [
   { id: "text",  label: "Text",  icon: FileText, title: "Text Fake-News Detection", subtitle: "Analyze text content for misinformation and AI-generated content" },
   { id: "image", label: "Image", icon: ImageIcon, title: "Image Deepfake Detection", subtitle: "Detect manipulated or AI-generated images" },
   { id: "video", label: "Video", icon: VideoIcon, title: "Video Deepfake Analysis", subtitle: "Identify deepfake videos and manipulation patterns" },

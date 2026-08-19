@@ -4,7 +4,7 @@
  * Prevents redundant re-scans of identical files/text and delivers sub-10ms response times.
  */
 
-interface CacheEntry<T = any> {
+interface CacheEntry<T = unknown> {
   hash: string;
   data: T;
   timestamp: number;
@@ -124,5 +124,7 @@ export function clearScanCache(): void {
   memoryCache.clear();
   try {
     localStorage.removeItem(LOCAL_STORAGE_KEY);
-  } catch {}
+  } catch {
+    // localStorage may be unavailable in private browsing or restricted contexts.
+  }
 }

@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import type { Scan } from "@/hooks/useScans";
+import type { DynamicRecord } from "@/lib/analysisTypes";
 
 const BRAND = "VERIFACT";
 const TAGLINE = "Forensic Analysis Report";
@@ -92,7 +93,7 @@ export function generateForensicReport(scan: Scan) {
   y += 10;
 
   // Verdict pill
-  const details = (scan.details ?? {}) as Record<string, any>;
+  const details = (scan.details ?? {}) as DynamicRecord;
   const cat = details.category;
   const [r, g, b] = verdictColor(cat);
   doc.setFillColor(r, g, b);
@@ -165,14 +166,17 @@ export function generateForensicReport(scan: Scan) {
   }
 
   // Effects / propaganda techniques / risk flags
-  const effects: any[] | undefined =
-    (scan.effects as any[]) || details.effects || details.propaganda || details.riskFlags;
+  const effects = (scan.effects as unknown[] | undefined) ||
+    (Array.isArray(details.effects) ? details.effects : undefined) ||
+    (Array.isArray(details.propaganda) ? details.propaganda : undefined) ||
+    (Array.isArray(details.riskFlags) ? details.riskFlags : undefined);
   if (Array.isArray(effects) && effects.length) {
     y = ensureSpace(doc, y, 14 + effects.length * 7, pageW, pageH);
     y = sectionTitle(doc, y, "Detected indicators");
-    effects.forEach((e: any) => {
-      const name = e?.name || e?.technique || e?.label || String(e);
-      const sev = e?.severity || e?.level || "";
+    effects.forEach((e) => {
+      const effect = typeof e === "object" && e !== null ? e as DynamicRecord : {};
+      const name = effect.name || effect.technique || effect.label || String(e);
+      const sev = effect.severity || effect.level || "";
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(40);

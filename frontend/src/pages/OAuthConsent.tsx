@@ -6,10 +6,20 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 
+interface OAuthData {
+  redirect_url?: string;
+  redirect_to?: string;
+  client?: { name?: string };
+}
+
+interface OAuthError {
+  message: string;
+}
+
 type OAuthNamespace = {
-  getAuthorizationDetails: (id: string) => Promise<{ data: any; error: any }>;
-  approveAuthorization: (id: string) => Promise<{ data: any; error: any }>;
-  denyAuthorization: (id: string) => Promise<{ data: any; error: any }>;
+  getAuthorizationDetails: (id: string) => Promise<{ data: OAuthData | null; error: OAuthError | null }>;
+  approveAuthorization: (id: string) => Promise<{ data: OAuthData | null; error: OAuthError | null }>;
+  denyAuthorization: (id: string) => Promise<{ data: OAuthData | null; error: OAuthError | null }>;
 };
 
 const oauth = () => (supabase.auth as unknown as { oauth: OAuthNamespace }).oauth;
@@ -17,7 +27,7 @@ const oauth = () => (supabase.auth as unknown as { oauth: OAuthNamespace }).oaut
 export default function OAuthConsent() {
   const [params] = useSearchParams();
   const authorizationId = params.get("authorization_id") ?? "";
-  const [details, setDetails] = useState<any>(null);
+  const [details, setDetails] = useState<OAuthData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

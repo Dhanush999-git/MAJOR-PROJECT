@@ -21,7 +21,7 @@ interface UrlResult {
   domainInfo?: { age: string; registrar: string; sslValid: boolean | null; sslIssuer: string };
   safeBrowsingThreats?: string[];
   riskFlags?: RiskFlag[];
-  speedMetrics?: any;
+  speedMetrics?: import("@/lib/analysisTypes").SpeedMetrics;
   executionTimeMs?: number;
 }
 

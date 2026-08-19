@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import exifr from "exifr";
 import { analyzeImageForensics, type ForensicBundle } from "@/lib/forensicSignals";
 import { generateForensicReport } from "@/lib/forensicReport";
+import type { SpeedMetrics } from "@/lib/analysisTypes";
 
 /* ── Types ─────────────────────────────────── */
 interface DetectedEffect { name: string; confidence: number; severity?: "subtle" | "moderate" | "strong"; }
@@ -64,7 +65,7 @@ interface ImageResult {
   detectionBreakdown?: DetectionBreakdown;
   effects?: DetectedEffect[];
   regions?: Region[];
-  speedMetrics?: any;
+  speedMetrics?: SpeedMetrics;
   executionTimeMs?: number;
 }
 interface ExifInfo {
@@ -139,6 +140,16 @@ export const ImageVerification = () => {
   const [exifData, setExifData] = useState<ExifInfo | null>(null);
   const [compression, setCompression] = useState<CompressionInfo | null>(null);
   const [forensics, setForensics] = useState<ForensicBundle | null>(null);
+  // Clear the current image/results whenever leaving the Image Verification page
+useEffect(() => {
+  return () => {
+    setLocalSelectedImage(null);
+    setExifData(null);
+    setCompression(null);
+    setForensics(null);
+    clearAnalysis("image");
+  };
+}, []);
   const [showRegions, setShowRegions] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -158,33 +169,71 @@ export const ImageVerification = () => {
     runImageAnalysis(imageData, signals, forensicBundle);
   };
 
-  const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { toast.error("Please upload an image file"); return; }
+ const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    const exifPromise = extractExif(file);
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setLocalSelectedImage(dataUrl);
-      const dims = await new Promise<{ width: number; height: number }>((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-        img.onerror = () => resolve({ width: 0, height: 0 });
-        img.src = dataUrl;
-      });
-      const comp = analyzeCompression(file, dims.width, dims.height);
-      setCompression(comp);
-      const exif = await exifPromise;
-      setExifData(exif);
-      // forensic bundle is computed silently (still sent to backend) but no longer rendered as a panel
-      const forensicBundle = await analyzeImageForensics(dataUrl);
-      setForensics(forensicBundle);
-      runAnalysis(dataUrl, { exif, compression: comp, dimensions: dims, mime: file.type }, forensicBundle);
-    };
-    reader.readAsDataURL(file);
-  }, [user]);
+  if (!file.type.startsWith("image/")) {
+    toast.error("Please upload an image file");
+    return;
+  }
+
+  const exifPromise = extractExif(file);
+
+  const reader = new FileReader();
+
+  reader.onload = async (ev) => {
+    const dataUrl = ev.target?.result as string;
+    setLocalSelectedImage(dataUrl);
+
+    const dims = await new Promise<{ width: number; height: number }>((resolve) => {
+      const img = new Image();
+
+      img.onload = () => {
+        resolve({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      };
+
+      img.onerror = () => {
+        resolve({
+          width: 0,
+          height: 0,
+        });
+      };
+
+      img.src = dataUrl;
+    });
+
+    const comp = analyzeCompression(
+      file,
+      dims.width,
+      dims.height
+    );
+
+    setCompression(comp);
+
+    const exif = await exifPromise;
+    setExifData(exif);
+
+    const forensicBundle = await analyzeImageForensics(dataUrl);
+    setForensics(forensicBundle);
+
+    runAnalysis(
+      dataUrl,
+      {
+        exif,
+        compression: comp,
+        dimensions: dims,
+        mime: file.type,
+      },
+      forensicBundle
+    );
+  };
+
+  reader.readAsDataURL(file);
+}, [runImageAnalysis]);
 
   /* ── Share / PDF ───────────────────────────── */
   const buildScanForReport = (): Scan | null => {
@@ -319,7 +368,7 @@ export const ImageVerification = () => {
                 <p className="text-xs text-muted-foreground">PNG, JPG, WEBP — analysed instantly with premium AI forensics</p>
               </div>
             )}
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImageUpload} className="hidden" />
           </div>
         </div>
       </Card>
@@ -484,7 +533,7 @@ export const ImageVerification = () => {
                   )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {result.detectors.map((det: any, i: number) => (
+                    {result.detectors.map((det, i: number) => (
                       <div key={det.id || i} className="p-3 rounded-xl glass-panel border border-border/40 space-y-2">
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-semibold truncate">{det.name}</span>
