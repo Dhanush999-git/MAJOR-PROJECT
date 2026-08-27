@@ -94,7 +94,7 @@ export function generateForensicReport(scan: Scan) {
 
   // Verdict pill
   const details = (scan.details ?? {}) as DynamicRecord;
-  const cat = details.category;
+  const cat = typeof details.category === "string" ? details.category : undefined;
   const [r, g, b] = verdictColor(cat);
   doc.setFillColor(r, g, b);
   doc.roundedRect(14, y, 70, 14, 3, 3, "F");
@@ -139,8 +139,11 @@ export function generateForensicReport(scan: Scan) {
   }
 
   // Detection scores
-  const scores: Record<string, number> | undefined =
-    details.detectionScores || details.scores;
+  const rawScores = details.detectionScores ?? details.scores;
+  const scores: Record<string, unknown> | undefined =
+    rawScores && typeof rawScores === "object" && !Array.isArray(rawScores)
+      ? rawScores as Record<string, unknown>
+      : undefined;
   if (scores && Object.keys(scores).length) {
     y = ensureSpace(doc, y, 12 + Object.keys(scores).length * 9, pageW, pageH);
     y = sectionTitle(doc, y, "Detection scores");

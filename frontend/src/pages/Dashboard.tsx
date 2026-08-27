@@ -239,7 +239,7 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground">{new Date(scan.created_at).toLocaleString()}</p>
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[typeof (scan.details as DynamicRecord).category === "string" ? scan.details.category : ""] || ""}`}>
+                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[typeof (scan.details as DynamicRecord).category === "string" ? String((scan.details as DynamicRecord).category) : ""] || ""}`}>
                         {scan.verdict || "—"}
                       </p>
                       {scan.confidence != null && (

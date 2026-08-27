@@ -364,28 +364,93 @@ export const TextVerification = () => {
               </Card>
             )}
 
-            {/* Real / Misleading / Fake probability breakdown */}
-            {result.probabilities && (
-              <Card className="glass-panel p-5 animate-glass-ripple">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Probability Breakdown</p>
-                <div className="grid grid-cols-3 gap-3">
-                  {([
-                    ["Real", result.probabilities.real, "success"],
-                    ["Misleading", result.probabilities.misleading, "warning"],
-                    ["Fake", result.probabilities.fake, "destructive"],
-                  ] as const).map(([label, val, tone]) => (
-                    <div key={label} className={`p-3 rounded-lg glass-panel border ${tone === "success" ? "border-success/40" : tone === "warning" ? "border-warning/40" : "border-destructive/40"}`}>
-                      <p className={`text-xs font-medium ${tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-destructive"}`}>{label}</p>
-                      <p className="text-2xl font-extrabold tabular-nums mt-1">{val}%</p>
-                      <Progress value={val} className="h-1.5 mt-2" />
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-3">
-                  Final classification chosen by highest probability via ensemble of semantic, fact-check, historical and consistency layers.
+            {/* Text Model Probability Breakdown */}
+{result.probabilities && (
+  <Card className="glass-panel p-5 animate-glass-ripple">
+    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
+      Probability Breakdown
+    </p>
+
+    {(() => {
+      const probabilities = result.probabilities as Record<string, number>;
+
+      // --------------------------------------------------
+      // Convert model probabilities to percentages
+      // GhostFaith/distilbert-fakenews:
+      // LABEL_0 = REAL
+      // LABEL_1 = FAKE
+      // --------------------------------------------------
+
+      const realProbability =
+        typeof probabilities.LABEL_0 === "number"
+          ? probabilities.LABEL_0 * 100
+          : typeof probabilities.real === "number"
+            ? probabilities.real
+            : 0;
+
+      const fakeProbability =
+        typeof probabilities.LABEL_1 === "number"
+          ? probabilities.LABEL_1 * 100
+          : typeof probabilities.fake === "number"
+            ? probabilities.fake
+            : 0;
+
+      const probabilityItems = [
+        {
+          label: "Real",
+          value: realProbability,
+          tone: "success",
+        },
+        {
+          label: "Fake",
+          value: fakeProbability,
+          tone: "destructive",
+        },
+      ] as const;
+
+      return (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {probabilityItems.map(({ label, value, tone }) => (
+              <div
+                key={label}
+                className={`p-3 rounded-lg glass-panel border ${
+                  tone === "success"
+                    ? "border-success/40"
+                    : "border-destructive/40"
+                }`}
+              >
+                <p
+                  className={`text-xs font-medium ${
+                    tone === "success"
+                      ? "text-success"
+                      : "text-destructive"
+                  }`}
+                >
+                  {label}
                 </p>
-              </Card>
-            )}
+
+                <p className="text-2xl font-extrabold tabular-nums mt-1">
+                  {value.toFixed(2)}%
+                </p>
+
+                <Progress
+                  value={Math.min(100, Math.max(0, value))}
+                  className="h-1.5 mt-2"
+                />
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Probability scores indicate how strongly the text
+            was classified toward the Real or Fake category.
+          </p>
+        </>
+      );
+    })()}
+  </Card>
+)}
 
             {/* Detailed analysis — one section at a time via tabs */}
             {(() => {

@@ -1,3 +1,4 @@
+import axios from "axios";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import express from "express";
@@ -13,6 +14,7 @@ dotenv.config({ path: join(BACKEND_DIR, ".env") });
 const app = express();
 const PORT = process.env.PORT || 5000;
 const HOST = "0.0.0.0";
+const ML_API_URL = process.env.ML_API_URL || "http://127.0.0.1:8000";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/verifact";
 const DB_NAME = process.env.DB_NAME || "verifact";
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -584,12 +586,19 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 // ===============================
-// TEXT ANALYSIS
+// TEXT ANALYSIS - PRETRAINED ML
 // ===============================
 
 app.post("/api/analyze/text", async (req, res) => {
   try {
-    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    const text =
+      typeof req.body?.text === "string"
+        ? req.body.text.trim()
+        : "";
+
+    // --------------------------------
+    // Validate text
+    // --------------------------------
 
     if (!text) {
       return res.status(400).json({
@@ -597,26 +606,120 @@ app.post("/api/analyze/text", async (req, res) => {
       });
     }
 
-    // Temporary local analysis
-    // Replace this section later with your actual text ML model.
-    const isSuspicious =
-      text.toLowerCase().includes("fake") ||
-      text.toLowerCase().includes("scam");
+    // --------------------------------
+    // Send text to Python ML API
+    // --------------------------------
+
+    const mlResponse = await axios.post(
+      `${ML_API_URL}/predict/text`,
+      {
+        text,
+      },
+      {
+        timeout: 120000,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // --------------------------------
+    // Get ML response
+    // --------------------------------
+
+    const mlData = mlResponse.data;
+
+    if (!mlData || mlData.success !== true) {
+      return res.status(502).json({
+        error: "Text ML model returned an invalid response",
+        ml_response: mlData,
+      });
+    }
+
+    const prediction = mlData.result;
+
+    // --------------------------------
+    // Convert ML result to VeriFact format
+    // --------------------------------
+
+    const isAuthentic =
+      prediction.label === "REAL";
+
+    const confidencePercentage = Math.round(
+      prediction.confidence * 100
+    );
 
     const result = {
-      isAuthentic: !isSuspicious,
-      confidence: isSuspicious ? 85 : 90,
-      category: isSuspicious ? "fake" : "authentic",
-      analysis: isSuspicious
-        ? "The text contains potentially suspicious claims."
-        : "No obvious suspicious indicators were detected.",
+      isAuthentic,
+
+      confidence: confidencePercentage,
+
+      category: isAuthentic
+        ? "authentic"
+        : "fake",
+
+      analysis: isAuthentic
+        ? "The pretrained text classification model classified this content as likely real."
+        : "The pretrained text classification model classified this content as likely fake.",
+
+      mlModel: prediction.model,
+
+      mlLabel: prediction.label,
+
+      mlConfidence: prediction.confidence,
+
+      probabilities: prediction.probabilities,
+
+      device: prediction.device,
     };
 
-    res.json(result);
-  } catch (err) {
-    console.error("Text analysis error:", err);
+    // --------------------------------
+    // Return result to frontend
+    // --------------------------------
 
-    res.status(500).json({
+    return res.json(result);
+
+  } catch (err) {
+
+    console.error(
+      "Text ML analysis error:",
+      err.message
+    );
+
+    // --------------------------------
+    // Python API unavailable
+    // --------------------------------
+
+    if (err.code === "ECONNREFUSED") {
+      return res.status(503).json({
+        error: "Text ML service is not running",
+        message:
+          "Please start the Python FastAPI ML service on port 8000.",
+      });
+    }
+
+    // --------------------------------
+    // Python API timeout
+    // --------------------------------
+
+    if (err.code === "ECONNABORTED") {
+      return res.status(504).json({
+        error: "Text ML service timed out",
+      });
+    }
+
+    // --------------------------------
+    // Other errors
+    // --------------------------------
+
+    if (err.response) {
+      return res.status(502).json({
+        error: "Text ML service returned an error",
+        details: err.response.data,
+      });
+    }
+
+    return res.status(500).json({
       error: "Text analysis failed",
     });
   }
