@@ -7,6 +7,7 @@ import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { verifyText } from "./services/mlService.js";
 
 const BACKEND_DIR = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(BACKEND_DIR, ".env") });
@@ -582,6 +583,46 @@ app.post("/api/auth/login", async (req, res) => {
 
     res.status(500).json({
       error: "Login failed",
+    });
+  }
+});
+// ===============================
+// EVIDENCE-BASED TEXT VERIFICATION
+// ===============================
+
+app.post("/api/verify/text", async (req, res) => {
+  try {
+    const text =
+      typeof req.body?.text === "string"
+        ? req.body.text.trim()
+        : "";
+
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        error: "Text is required",
+      });
+    }
+
+    if (text.length > 10000) {
+      return res.status(413).json({
+        success: false,
+        error: "Text is too long. Maximum length is 10000 characters.",
+      });
+    }
+
+    const result = await verifyText(text);
+
+    return res.json(result);
+  } catch (error) {
+    console.error(
+      "Evidence-based text verification error:",
+      error
+    );
+
+    return res.status(502).json({
+      success: false,
+      error: "Text verification service is unavailable.",
     });
   }
 });

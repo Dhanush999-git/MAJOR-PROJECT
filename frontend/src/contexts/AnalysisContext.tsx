@@ -231,72 +231,707 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // 1. Text Analysis
-  const runTextAnalysis = async (text: string) => {
-    const startTime = performance.now();
-    setTextState({
-      isAnalyzing: true,
-      progress: 5,
-      statusText: "Analyzing text claims & web evidence...",
-      input: text,
-      result: null,
-      error: null,
-    });
+  // 1. Text Analysis
+// 1. Text Analysis
+const runTextAnalysis = async (text: string) => {
+  const startTime = performance.now();
 
-    const timer = simulateProgress(setTextState, ["Extracting claims...", "Searching news agencies...", "Cross-checking facts...", "Finalizing verdict..."], 800);
+  setTextState({
+    isAnalyzing: true,
+    progress: 5,
+    statusText: "Analyzing text claims & web evidence...",
+    input: text,
+    result: null,
+    error: null,
+  });
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/analyze/text`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({ text }),
-});
+  const timer = simulateProgress(
+    setTextState,
+    [
+      "Extracting claims...",
+      "Searching fact-check sources...",
+      "Searching news evidence...",
+      "Comparing evidence with the claim...",
+      "Finalizing evidence-based verdict...",
+    ],
+    1200
+  );
 
-const data = await response.json().catch(() => null);
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/verify/text`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: text.trim(),
+        }),
+      }
+    );
 
-if (!response.ok) {
-  throw new Error(data?.error || "Text analysis failed");
-}
+    const outerData = await response.json().catch(() => null);
 
-if (!data || typeof data !== "object") {
-  throw new Error("Text analysis returned an invalid response");
-}
-      clearInterval(timer);
-      const elapsedMs = Math.round(performance.now() - startTime);
-      const speedMetrics = {
-        totalMs: elapsedMs,
-        prepMs: Math.round(elapsedMs * 0.15),
-        forensicMs: Math.round(elapsedMs * 0.35),
-        aiInferenceMs: Math.round(elapsedMs * 0.50),
-        throughputLabel: `${(text.length / (elapsedMs / 1000 || 1)).toFixed(0)} chars/sec`,
-      };
-      const enrichedData = { ...data, speedMetrics, executionTimeMs: elapsedMs };
-
-      setTextState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 100,
-        statusText: "Analysis Complete",
-        result: enrichedData,
-      }));
-
-      await saveScanToDb("text", text, enrichedData.category, enrichedData.confidence, enrichedData);
-      toast.success(`Text Analysis completed in ${elapsedMs}ms!`);
-    } catch (err) {
-      clearInterval(timer);
-      const msg = err instanceof Error ? err.message : "Analysis failed";
-      setTextState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 0,
-        statusText: "",
-        error: msg,
-        result: null,
-      }));
-      toast.error("Text analysis failed: " + msg);
+    if (!response.ok) {
+      throw new Error(
+        outerData?.error ||
+          outerData?.detail ||
+          "Evidence-based text verification failed"
+      );
     }
-  };
+
+    if (
+      !outerData ||
+      typeof outerData !== "object"
+    ) {
+      throw new Error(
+        "Text verification returned an invalid response"
+      );
+    }
+
+    /*
+     * Node backend returns:
+     *
+     * {
+     *   success: true,
+     *   result: {
+     *     verdict: "...",
+     *     confidence: ...,
+     *     ...
+     *   }
+     * }
+     *
+     * Always unwrap result safely.
+     */
+    const verificationData =
+      outerData &&
+      typeof outerData.result === "object" &&
+      outerData.result !== null
+        ? outerData.result
+        : outerData;
+
+    const resultRecord =
+      verificationData as Record<string, unknown>;
+
+    /* --------------------------------------------------------
+       BASIC RESULT
+       -------------------------------------------------------- */
+
+    const rawVerdict = String(
+      resultRecord.verdict ?? "UNVERIFIED"
+    )
+      .trim()
+      .toUpperCase();
+
+    const rawConfidence = Number(
+      resultRecord.confidence ?? 0
+    );
+
+    const confidenceDecimal = Number.isFinite(
+      rawConfidence
+    )
+      ? Math.max(
+          0,
+          Math.min(1, rawConfidence)
+        )
+      : 0;
+
+    const confidencePercent =
+      confidenceDecimal * 100;
+
+
+    /* --------------------------------------------------------
+       CLASSIFIER
+       -------------------------------------------------------- */
+
+    const classifier =
+      resultRecord.classifier &&
+      typeof resultRecord.classifier === "object"
+        ? (resultRecord.classifier as {
+            label?: string;
+            raw_label?: string;
+            confidence?: number;
+            probabilities?: Record<
+              string,
+              number
+            >;
+            model?: string;
+            device?: string;
+          })
+        : undefined;
+
+
+    /* --------------------------------------------------------
+       FACT CHECKS
+       -------------------------------------------------------- */
+
+    const factChecksRaw =
+      Array.isArray(
+        resultRecord.fact_checks
+      )
+        ? resultRecord.fact_checks
+        : [];
+
+    const factChecks = factChecksRaw.map(
+      (item) => {
+        const fact =
+          item as Record<string, unknown>;
+
+        return {
+          claim:
+            typeof fact.claim === "string"
+              ? fact.claim
+              : text,
+
+          publisher:
+            typeof fact.publisher === "string"
+              ? fact.publisher
+              : "Fact-check publisher",
+
+          publisher_site:
+            typeof fact.publisher_site === "string"
+              ? fact.publisher_site
+              : "",
+
+          title:
+            typeof fact.title === "string"
+              ? fact.title
+              : "",
+
+          url:
+            typeof fact.url === "string"
+              ? fact.url
+              : "",
+
+          review_date:
+            typeof fact.review_date === "string"
+              ? fact.review_date
+              : "",
+
+          rating:
+            typeof fact.rating === "string"
+              ? fact.rating
+              : "",
+
+          normalized_rating:
+            typeof fact.normalized_rating === "string"
+              ? fact.normalized_rating
+              : "",
+
+          relevance_score:
+            typeof fact.relevance_score === "number"
+              ? fact.relevance_score
+              : 0,
+
+          publisher_quality:
+            typeof fact.publisher_quality === "number"
+              ? fact.publisher_quality
+              : 0,
+
+          relevant:
+            fact.relevant === true,
+        };
+      }
+    );
+
+
+    /* --------------------------------------------------------
+       WEB EVIDENCE
+       -------------------------------------------------------- */
+
+    const webEvidenceRaw =
+      Array.isArray(
+        resultRecord.web_evidence
+      )
+        ? resultRecord.web_evidence
+        : [];
+
+    const webEvidence =
+      webEvidenceRaw.map(
+        (item) => {
+          const evidence =
+            item as Record<string, unknown>;
+
+          return {
+            title:
+              typeof evidence.title === "string"
+                ? evidence.title
+                : "Web evidence",
+
+            publisher:
+              typeof evidence.publisher === "string"
+                ? evidence.publisher
+                : "Unknown publisher",
+
+            google_news_url:
+              typeof evidence.google_news_url === "string"
+                ? evidence.google_news_url
+                : "",
+
+            publisher_url:
+              typeof evidence.publisher_url === "string"
+                ? evidence.publisher_url
+                : "",
+
+            article_url:
+              typeof evidence.article_url === "string"
+                ? evidence.article_url
+                : "",
+
+            published:
+              typeof evidence.published === "string"
+                ? evidence.published
+                : "",
+
+            description:
+              typeof evidence.description === "string"
+                ? evidence.description
+                : "",
+
+            article_text:
+              typeof evidence.article_text === "string"
+                ? evidence.article_text
+                : "",
+
+            evidence_text:
+              typeof evidence.evidence_text === "string"
+                ? evidence.evidence_text
+                : "",
+
+            evidence_type:
+              typeof evidence.evidence_type === "string"
+                ? evidence.evidence_type
+                : "",
+
+            resolved:
+              evidence.resolved === true,
+
+            extracted:
+              evidence.extracted === true,
+          };
+        }
+      );
+
+
+    /* --------------------------------------------------------
+       EVIDENCE VERIFICATION
+       -------------------------------------------------------- */
+
+    const evidenceVerificationRaw =
+      resultRecord.evidence_verification;
+
+    const evidenceVerification =
+      evidenceVerificationRaw &&
+      typeof evidenceVerificationRaw === "object"
+        ? (evidenceVerificationRaw as Record<
+            string,
+            unknown
+          >)
+        : null;
+
+
+    const scoresRaw =
+      evidenceVerification?.scores;
+
+    const scores =
+      scoresRaw &&
+      typeof scoresRaw === "object"
+        ? (scoresRaw as Record<string, unknown>)
+        : {};
+
+
+    const sourceSummaryRaw =
+      evidenceVerification?.source_summary;
+
+    const sourceSummary =
+      sourceSummaryRaw &&
+      typeof sourceSummaryRaw === "object"
+        ? (sourceSummaryRaw as Record<
+            string,
+            unknown
+          >)
+        : {};
+
+
+    /* --------------------------------------------------------
+       EVIDENCE RESULTS
+       -------------------------------------------------------- */
+
+    const evidenceResultsRaw =
+      Array.isArray(
+        evidenceVerification?.evidence_results
+      )
+        ? evidenceVerification.evidence_results
+        : [];
+
+    const evidenceResults =
+      evidenceResultsRaw.map(
+        (item) => {
+          const evidence =
+            item as Record<string, unknown>;
+
+          return {
+            evidence:
+              typeof evidence.evidence === "string"
+                ? evidence.evidence
+                : "",
+
+            proposition_relationship:
+              typeof evidence.proposition_relationship === "string"
+                ? evidence.proposition_relationship
+                : "UNKNOWN",
+
+            proposition_confidence:
+              typeof evidence.proposition_confidence === "number"
+                ? evidence.proposition_confidence
+                : 0,
+
+            claim_relation:
+              evidence.claim_relation ?? null,
+
+            evidence_relation:
+              evidence.evidence_relation ?? null,
+
+            nli_verdict:
+              typeof evidence.nli_verdict === "string"
+                ? evidence.nli_verdict
+                : "NOT_ENOUGH_INFO",
+
+            nli_confidence:
+              typeof evidence.nli_confidence === "number"
+                ? evidence.nli_confidence
+                : 0,
+
+            final_evidence_verdict:
+              typeof evidence.final_evidence_verdict === "string"
+                ? evidence.final_evidence_verdict
+                : "NOT_ENOUGH_INFO",
+
+            correction_reason:
+              typeof evidence.correction_reason === "string"
+                ? evidence.correction_reason
+                : "",
+
+            evidence_score:
+              typeof evidence.evidence_score === "number"
+                ? evidence.evidence_score
+                : 0,
+
+            similarity:
+              typeof evidence.similarity === "number"
+                ? evidence.similarity
+                : 0,
+
+            keyword_overlap:
+              typeof evidence.keyword_overlap === "number"
+                ? evidence.keyword_overlap
+                : 0,
+
+            concept_overlap:
+              typeof evidence.concept_overlap === "number"
+                ? evidence.concept_overlap
+                : 0,
+
+            directness:
+              typeof evidence.directness === "number"
+                ? evidence.directness
+                : 0,
+
+            usefulness:
+              typeof evidence.usefulness === "number"
+                ? evidence.usefulness
+                : 0,
+
+            source:
+              typeof evidence.source === "string"
+                ? evidence.source
+                : "Unknown source",
+
+            source_quality:
+              typeof evidence.source_quality === "number"
+                ? evidence.source_quality
+                : 0,
+
+            evidence_type:
+              typeof evidence.evidence_type === "string"
+                ? evidence.evidence_type
+                : "",
+
+            title:
+              typeof evidence.title === "string"
+                ? evidence.title
+                : "",
+
+            url:
+              typeof evidence.url === "string"
+                ? evidence.url
+                : "",
+
+            published:
+              typeof evidence.published === "string"
+                ? evidence.published
+                : "",
+          };
+        }
+      );
+
+
+    /* --------------------------------------------------------
+       SOURCE RESULTS
+       -------------------------------------------------------- */
+
+    const sourceResultsRaw =
+      Array.isArray(
+        evidenceVerification?.source_results
+      )
+        ? evidenceVerification.source_results
+        : [];
+
+    const sourceResults =
+      sourceResultsRaw.map(
+        (item) => {
+          const source =
+            item as Record<string, unknown>;
+
+          return {
+            source:
+              typeof source.source === "string"
+                ? source.source
+                : "Unknown source",
+
+            source_quality:
+              typeof source.source_quality === "number"
+                ? source.source_quality
+                : 0,
+
+            verdict:
+              typeof source.verdict === "string"
+                ? source.verdict
+                : "NOT_ENOUGH_INFO",
+
+            strength:
+              typeof source.strength === "number"
+                ? source.strength
+                : 0,
+
+            evidence_count:
+              typeof source.evidence_count === "number"
+                ? source.evidence_count
+                : 0,
+
+            best_evidence:
+              typeof source.best_evidence === "string"
+                ? source.best_evidence
+                : "",
+          };
+        }
+      );
+
+
+    /* --------------------------------------------------------
+       PROBABILITIES
+       -------------------------------------------------------- */
+
+    const classifierProbabilities =
+      classifier?.probabilities || {};
+
+    const realProbability =
+      Number(
+        classifierProbabilities.LABEL_0 ??
+          classifierProbabilities["0"] ??
+          0
+      );
+
+    const fakeProbability =
+      Number(
+        classifierProbabilities.LABEL_1 ??
+          classifierProbabilities["1"] ??
+          0
+      );
+
+
+    /* --------------------------------------------------------
+       FINAL UI VERDICT
+       -------------------------------------------------------- */
+
+    const finalVerdict =
+      rawVerdict === "REAL" ||
+      rawVerdict === "FAKE" ||
+      rawVerdict === "UNVERIFIED"
+        ? rawVerdict
+        : "UNVERIFIED";
+
+
+    const enrichedData = {
+      ...resultRecord,
+
+      text:
+        typeof resultRecord.text === "string"
+          ? resultRecord.text
+          : text,
+
+      verdict: finalVerdict,
+
+      confidence: confidenceDecimal,
+
+      reason:
+        typeof resultRecord.reason === "string"
+          ? resultRecord.reason
+          : "The claim was evaluated using available evidence.",
+
+      classifier,
+
+      fact_checks: factChecks,
+
+      web_evidence: webEvidence,
+
+      evidence_verification: {
+        ...evidenceVerification,
+
+        scores: {
+          supports:
+            typeof scores.supports === "number"
+              ? scores.supports
+              : 0,
+
+          refutes:
+            typeof scores.refutes === "number"
+              ? scores.refutes
+              : 0,
+
+          neutral:
+            typeof scores.neutral === "number"
+              ? scores.neutral
+              : 0,
+        },
+
+        source_summary: {
+          total_sources:
+            typeof sourceSummary.total_sources === "number"
+              ? sourceSummary.total_sources
+              : 0,
+
+          supporting_sources:
+            typeof sourceSummary.supporting_sources === "number"
+              ? sourceSummary.supporting_sources
+              : 0,
+
+          refuting_sources:
+            typeof sourceSummary.refuting_sources === "number"
+              ? sourceSummary.refuting_sources
+              : 0,
+
+          neutral_sources:
+            typeof sourceSummary.neutral_sources === "number"
+              ? sourceSummary.neutral_sources
+              : 0,
+
+          conflicting_sources:
+            typeof sourceSummary.conflicting_sources === "number"
+              ? sourceSummary.conflicting_sources
+              : 0,
+        },
+
+        evidence_results: evidenceResults,
+
+        source_results: sourceResults,
+
+        evidence_count:
+          typeof evidenceVerification?.evidence_count === "number"
+            ? evidenceVerification.evidence_count
+            : evidenceResults.length,
+      },
+
+      executionTimeMs:
+        Math.round(
+          performance.now() - startTime
+        ),
+
+      speedMetrics: {
+        totalMs:
+          Math.round(
+            performance.now() - startTime
+          ),
+
+        prepMs: 0,
+
+        forensicMs: 0,
+
+        aiInferenceMs: 0,
+
+        throughputLabel:
+          `${(
+            text.length /
+            ((performance.now() - startTime) / 1000 || 1)
+          ).toFixed(0)} chars/sec`,
+      },
+    };
+
+
+    /* --------------------------------------------------------
+       FRONTEND STATE
+       -------------------------------------------------------- */
+
+    clearInterval(timer);
+
+    setTextState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      progress: 100,
+      statusText: "Analysis Complete",
+      result: enrichedData,
+      error: null,
+    }));
+
+
+    /* --------------------------------------------------------
+       DATABASE
+       -------------------------------------------------------- */
+
+    await saveScanToDb(
+      "text",
+      text,
+      finalVerdict,
+      confidencePercent,
+      enrichedData
+    );
+
+
+    toast.success(
+      `Text verification completed in ${
+        enrichedData.executionTimeMs
+      }ms!`
+    );
+
+  } catch (err) {
+
+    clearInterval(timer);
+
+    const msg =
+      err instanceof Error
+        ? err.message
+        : "Analysis failed";
+
+    console.error(
+      "[Text Verification]",
+      err
+    );
+
+    setTextState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      progress: 0,
+      statusText: "",
+      error: msg,
+      result: null,
+    }));
+
+    toast.error(
+      "Text verification failed: " + msg
+    );
+  }
+};
 
   // 2. Image Analysis
   const runImageAnalysis = async (imageData: string, signals?: ImageAnalysisSignals, forensics?: ForensicBundle | null) => {

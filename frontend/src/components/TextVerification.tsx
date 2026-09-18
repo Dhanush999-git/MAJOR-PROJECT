@@ -1,635 +1,1524 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
-import { Loader2, ShieldCheck, AlertTriangle, ShieldAlert, Brain, MessageCircleWarning, History, FileSearch, GitCompare, BadgeCheck, XCircle, HelpCircle, Newspaper, Landmark, Clock, Sparkles, PencilLine } from "lucide-react";
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Brain,
+  CheckCircle2,
+  ExternalLink,
+  FileCheck2,
+  HelpCircle,
+  Loader2,
+  Newspaper,
+  Scale,
+  ShieldAlert,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
+
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AnalysisProgress } from "./AnalysisProgress";
-import { motion, AnimatePresence } from "framer-motion";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-
-interface PropagandaTechnique { name: string; confidence: number; example: string }
-interface ManipulationTactic { tactic: string; severity: "low" | "medium" | "high" }
-interface FactCheck { claim: string; status: "supported" | "unverified" | "contradicted"; note?: string }
-interface EventSummary { what?: string; when?: string; where?: string; who?: string; why?: string; latest?: string; context?: string }
-interface Correction { needed?: boolean; inaccurateParts?: string[]; reasons?: string[]; correctedClaim?: string; whatActuallyHappened?: string }
-interface TrustedSource { name: string; type?: string; note?: string }
-interface LiveSource { title: string; url: string; source: string; group: string }
-interface EvidenceItem { title: string; url: string; source?: string; stance?: "supports" | "refutes" | "context"; note?: string }
-interface SourceCoverage { corroboratingOutlets?: number; contradictingOutlets?: number; socialOnly?: boolean; summary?: string }
-type VerifiedVerdict = "Verified" | "False Information" | "Misleading" | "Partially True" | "Insufficient Evidence";
-interface TextResult {
-  isAuthentic: boolean;
-  confidence: number;
-  category: "authentic" | "suspicious" | "fake";
-  verdict?: "Real" | "Misleading" | "Fake";
-  verifiedVerdict?: VerifiedVerdict;
-  probabilities?: { real: number; misleading: number; fake: number };
-  analysis: string;
-  indicators?: string[];
-  scores?: {
-    fakeNewsProbability: number; propagandaLevel: number; biasScore: number;
-    sentimentManipulation: number; sourceCredibility: number; aiGeneratedProbability: number;
-  };
-  biasDirection?: string;
-  propagandaTechniques?: PropagandaTechnique[];
-  manipulationTactics?: ManipulationTactic[];
-  factChecks?: FactCheck[];
-  historicalContext?: string;
-  inconsistencies?: string[];
-  layerSignals?: { semantic: number; factCheck: number; historical: number; consistency: number; propaganda: number; sourceCredibility: number };
-  aiExplanation?: string;
-  eventSummary?: EventSummary;
-  correction?: Correction;
-  trustedSources?: TrustedSource[];
-  liveSources?: LiveSource[];
-  liveSearchUsed?: boolean;
-  evidenceUsed?: EvidenceItem[];
-  sourceCoverage?: SourceCoverage;
-  verifiedAt?: string;
-}
-
-const STANCE_CLS: Record<string, string> = {
-  supports: "text-success border-success/40 bg-success/10",
-  refutes: "text-destructive border-destructive/40 bg-destructive/10",
-  context: "text-muted-foreground border-border/50 bg-muted/20",
-};
-
-const SEVERITY_CLS: Record<string, string> = {
-  low: "bg-muted/40 border-border/50 text-foreground",
-  medium: "bg-warning/15 border-warning/40 text-warning",
-  high: "bg-destructive/15 border-destructive/40 text-destructive",
-};
-
-const BIAS_COLORS: Record<string, string> = {
-  left: "text-blue-500", "center-left": "text-sky-500", center: "text-success",
-  "center-right": "text-orange-400", right: "text-red-500", unknown: "text-muted-foreground",
-};
+import { Textarea } from "@/components/ui/textarea";
 
 import { useAnalysis } from "@/contexts/AnalysisContext";
 
+
+/* ============================================================
+   TYPES
+   ============================================================ */
+
+interface ClassifierResult {
+  label?: string;
+  raw_label?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+  model?: string;
+  device?: string;
+}
+
+interface FactCheckItem {
+  claim?: string;
+  publisher?: string;
+  publisher_site?: string;
+  title?: string;
+  url?: string;
+  review_date?: string;
+  rating?: string;
+  normalized_rating?: string;
+  language_code?: string;
+  relevance_score?: number;
+  publisher_quality?: number;
+  relevant?: boolean;
+}
+
+interface WebEvidenceItem {
+  title?: string;
+  publisher?: string;
+  google_news_url?: string;
+  publisher_url?: string;
+  article_url?: string;
+  published?: string;
+  description?: string;
+  article_text?: string;
+  evidence_text?: string;
+  evidence_type?: string;
+  resolved?: boolean;
+  extracted?: boolean;
+}
+
+interface EvidenceResult {
+  evidence?: string;
+  proposition_relationship?: string;
+  proposition_confidence?: number;
+
+  claim_relation?: {
+    relation?: string;
+    subject?: string;
+    object?: string;
+    negated?: boolean;
+  };
+
+  evidence_relation?: {
+    relation?: string;
+    subject?: string;
+    object?: string;
+    negated?: boolean;
+  } | null;
+
+  nli_verdict?: string;
+  nli_confidence?: number;
+
+  final_evidence_verdict?: string;
+  correction_reason?: string;
+
+  evidence_score?: number;
+  similarity?: number;
+  keyword_overlap?: number;
+  concept_overlap?: number;
+  directness?: number;
+  usefulness?: number;
+
+  source?: string;
+  source_quality?: number;
+  evidence_type?: string;
+  title?: string;
+  url?: string;
+  published?: string;
+}
+
+interface SourceResult {
+  source?: string;
+  source_quality?: number;
+  verdict?: string;
+  strength?: number;
+  evidence_count?: number;
+  best_evidence?: string;
+}
+
+interface EvidenceVerification {
+  claim?: string;
+
+  final_verdict?: string;
+  confidence?: number;
+
+  scores?: {
+    supports?: number;
+    refutes?: number;
+    neutral?: number;
+  };
+
+  source_summary?: {
+    total_sources?: number;
+    supporting_sources?: number;
+    refuting_sources?: number;
+    neutral_sources?: number;
+    conflicting_sources?: number;
+  };
+
+  source_results?: SourceResult[];
+
+  evidence_count?: number;
+  evidence_results?: EvidenceResult[];
+}
+
+interface TextVerificationResult {
+  text?: string;
+
+  verdict?: "REAL" | "FAKE" | "UNVERIFIED";
+  confidence?: number;
+  reason?: string;
+
+  factcheck_used?: boolean;
+  factcheck_similarity?: number | null;
+
+  classifier?: ClassifierResult;
+
+  fact_checks?: FactCheckItem[];
+  web_evidence?: WebEvidenceItem[];
+
+  evidence_verification?: EvidenceVerification;
+
+  executionTimeMs?: number;
+  speedMetrics?: {
+    totalMs?: number;
+    throughputLabel?: string;
+  };
+}
+
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+const formatPercent = (value?: number) => {
+  if (!Number.isFinite(Number(value))) {
+    return "0.00%";
+  }
+
+  return `${(Number(value) * 100).toFixed(2)}%`;
+};
+
+const formatScorePercent = (value?: number) => {
+  if (!Number.isFinite(Number(value))) {
+    return "0.0%";
+  }
+
+  return `${(Number(value) * 100).toFixed(1)}%`;
+};
+
+const verdictConfig = {
+  REAL: {
+    label: "REAL",
+    description: "The available evidence supports this claim.",
+    className:
+      "border-success/40 bg-success/10 text-success",
+    icon: ShieldCheck,
+  },
+
+  FAKE: {
+    label: "FAKE",
+    description: "The available evidence contradicts this claim.",
+    className:
+      "border-destructive/40 bg-destructive/10 text-destructive",
+    icon: ShieldAlert,
+  },
+
+  UNVERIFIED: {
+    label: "UNVERIFIED",
+    description:
+      "There is not enough reliable evidence to verify this claim.",
+    className:
+      "border-warning/40 bg-warning/10 text-warning",
+    icon: HelpCircle,
+  },
+} as const;
+
+
+/* ============================================================
+   COMPONENT
+   ============================================================ */
+
 export const TextVerification = () => {
-  const { textState, runTextAnalysis } = useAnalysis();
-  const [text, setText] = useState(textState.input || "");
+  const {
+    textState,
+    runTextAnalysis,
+  } = useAnalysis();
 
-  const isAnalyzing = textState.isAnalyzing;
-  const result = textState.result;
+  const [text, setText] = useState(
+    textState.input || ""
+  );
 
-  const analyzeText = () => {
-    if (!text.trim()) { toast.error("Please enter some text to analyze"); return; }
-    runTextAnalysis(text);
-  };
+  const result =
+    textState.result as TextVerificationResult | null;
 
-  const icon = (cat: string) => cat === "authentic" ? <ShieldCheck className="w-6 h-6 text-success" /> : cat === "suspicious" ? <AlertTriangle className="w-6 h-6 text-warning" /> : <ShieldAlert className="w-6 h-6 text-destructive" />;
-  const catCls = (cat: string) => cat === "authentic" ? "bg-success/10" : cat === "suspicious" ? "bg-warning/10" : "bg-destructive/10";
+  const isAnalyzing =
+    textState.isAnalyzing;
 
-  const VV_STYLE: Record<VerifiedVerdict, { cls: string; icon: JSX.Element; label: string }> = {
-    "Verified":              { cls: "bg-success/15 border-success/50 text-success",           icon: <BadgeCheck className="w-6 h-6" />,   label: "VERIFIED" },
-    "False Information":     { cls: "bg-destructive/15 border-destructive/50 text-destructive", icon: <XCircle className="w-6 h-6" />,    label: "FALSE INFORMATION" },
-    "Misleading":            { cls: "bg-warning/15 border-warning/50 text-warning",           icon: <AlertTriangle className="w-6 h-6" />, label: "MISLEADING" },
-    "Partially True":        { cls: "bg-warning/15 border-warning/50 text-warning",           icon: <AlertTriangle className="w-6 h-6" />, label: "PARTIALLY TRUE" },
-    "Insufficient Evidence": { cls: "bg-muted/40 border-border/50 text-foreground",           icon: <HelpCircle className="w-6 h-6" />,   label: "INSUFFICIENT EVIDENCE" },
-  };
 
-  // Derive a clear top-line verdict tag: Real / AI-Generated / Fake News / Manipulated / Suspicious
-  const deriveTag = (r: TextResult): { tag: string; metricLabel: string; metricValue: number; cls: string } => {
-    // If the backend ensemble produced explicit Real/Misleading/Fake probabilities, trust them.
-    if (r.probabilities && r.verdict) {
-      const p = r.probabilities;
-      if (r.verdict === "Real")
-        return { tag: "REAL NEWS", metricLabel: "Real Probability", metricValue: p.real, cls: "bg-success/15 border-success/50 text-success" };
-      if (r.verdict === "Misleading")
-        return { tag: "MISLEADING", metricLabel: "Misleading Probability", metricValue: p.misleading, cls: "bg-warning/15 border-warning/50 text-warning" };
-      return { tag: "FAKE NEWS", metricLabel: "Fake Probability", metricValue: p.fake, cls: "bg-destructive/15 border-destructive/50 text-destructive" };
+  /* ==========================================================
+     ANALYZE
+     ========================================================== */
+
+  const analyzeText = async () => {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
+      toast.error(
+        "Please enter a claim or statement to verify."
+      );
+      return;
     }
-    const s = r.scores;
-    const ai = s?.aiGeneratedProbability ?? 0;
-    const fake = s?.fakeNewsProbability ?? 0;
-    const prop = s?.propagandaLevel ?? 0;
-    const manip = Math.max(prop, s?.sentimentManipulation ?? 0);
-    if (r.category === "authentic" && ai < 60 && fake < 40)
-      return { tag: "REAL CONTENT", metricLabel: "Authenticity Score", metricValue: r.confidence, cls: "bg-success/15 border-success/50 text-success" };
-    if (ai >= 70)
-      return { tag: "AI-GENERATED", metricLabel: "AI Generated Probability", metricValue: ai, cls: "bg-primary/15 border-primary/50 text-primary" };
-    if (fake >= 65 || r.category === "fake")
-      return { tag: "FAKE NEWS", metricLabel: "Fake News Probability", metricValue: Math.max(fake, r.confidence), cls: "bg-destructive/15 border-destructive/50 text-destructive" };
-    if (manip >= 60)
-      return { tag: "MANIPULATED", metricLabel: "Manipulation Probability", metricValue: manip, cls: "bg-warning/15 border-warning/50 text-warning" };
-    return { tag: "SUSPICIOUS", metricLabel: "Risk Score", metricValue: r.confidence, cls: "bg-warning/15 border-warning/50 text-warning" };
+
+    if (trimmedText.length > 10000) {
+      toast.error(
+        "Text is too long. Maximum length is 10,000 characters."
+      );
+      return;
+    }
+
+    await runTextAnalysis(trimmedText);
   };
 
-  return (
-    <div className="space-y-6">
-      <Card className="glass-panel p-6 animate-glass-fade">
-        <div className="space-y-4">
-          <Textarea placeholder="Paste the text you want to verify…" value={text} onChange={(e) => setText(e.target.value)} className="min-h-[200px] resize-none glass-panel" />
-          <Button onClick={analyzeText} disabled={isAnalyzing} className="w-full bg-gradient-primary animate-lift" size="lg">
-            {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analyzing…</> : "Verify Text"}
-          </Button>
+
+  /* ==========================================================
+     CLEAR
+     ========================================================== */
+
+  const clearText = () => {
+    setText("");
+  };
+
+
+  /* ==========================================================
+     DERIVED DATA
+     ========================================================== */
+
+  const verdict =
+    result?.verdict || "UNVERIFIED";
+
+  const config =
+    verdictConfig[
+      verdict as keyof typeof verdictConfig
+    ] || verdictConfig.UNVERIFIED;
+
+  const VerdictIcon = config.icon;
+
+  const finalConfidence =
+    Number(result?.confidence || 0);
+
+  const classifier =
+    result?.classifier;
+
+  const classifierConfidence =
+    Number(classifier?.confidence || 0);
+
+  const classifierProbabilities =
+    classifier?.probabilities || {};
+
+  const realProbability =
+    Number(
+      classifierProbabilities.LABEL_0 ??
+        classifierProbabilities["0"] ??
+        0
+    );
+
+  const fakeProbability =
+    Number(
+      classifierProbabilities.LABEL_1 ??
+        classifierProbabilities["1"] ??
+        0
+    );
+
+  const evidenceVerification =
+    result?.evidence_verification;
+
+  const evidenceResults =
+    evidenceVerification?.evidence_results || [];
+
+  const sourceResults =
+    evidenceVerification?.source_results || [];
+
+  const factChecks =
+    result?.fact_checks || [];
+
+  const webEvidence =
+    result?.web_evidence || [];
+
+  const sourceSummary =
+    evidenceVerification?.source_summary;
+
+  const evidenceVerdict =
+    evidenceVerification?.final_verdict ||
+    "NOT_ENOUGH_INFO";
+
+
+  /* ==========================================================
+     RENDER
+     ========================================================== */
+
+ return (
+  <div className="w-full space-y-6">
+
+
+      {/* ======================================================
+          INPUT
+          ====================================================== */}
+
+      <Card className="glass-panel p-5">
+
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="font-semibold">
+              Enter a claim
+            </p>
+
+            <p className="text-xs text-muted-foreground mt-1">
+              Text verification uses evidence only.
+              No image upload is used here.
+            </p>
+          </div>
+
+          <span className="text-xs text-muted-foreground">
+            {text.length}/10000
+          </span>
         </div>
+
+        <Textarea
+          value={text}
+          onChange={(event) =>
+            setText(event.target.value)
+          }
+          placeholder="Example: The Earth revolves around the Sun."
+          disabled={isAnalyzing}
+          className="min-h-[180px] resize-y bg-background/40"
+        />
+
+        <div className="flex gap-3 mt-4">
+
+          <Button
+            onClick={analyzeText}
+            disabled={
+              isAnalyzing ||
+              !text.trim()
+            }
+            className="flex-1"
+          >
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Verifying Evidence...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Verify Text
+              </>
+            )}
+          </Button>
+
+          {text && !isAnalyzing && (
+            <Button
+              variant="outline"
+              onClick={clearText}
+            >
+              Clear
+            </Button>
+          )}
+
+        </div>
+
       </Card>
 
+
+      {/* ======================================================
+          ANALYSIS PROGRESS
+          ====================================================== */}
+
       {isAnalyzing && (
-        <Card className="glass-panel p-6 animate-glass-ripple space-y-4">
-          <div className="text-center space-y-2">
-            <div className="text-xl font-semibold">{textState.statusText || "Analyzing text..."}</div>
-            <p className="text-sm text-muted-foreground">Cross-checking web evidence & fact-checkers</p>
+        <Card className="glass-panel p-5">
+
+          <div className="flex items-center gap-3 mb-3">
+
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+
+            <div>
+              <p className="font-semibold">
+                Verifying claim
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                {textState.statusText ||
+                  "Running evidence-based verification..."}
+              </p>
+            </div>
+
           </div>
-          <Progress value={textState.progress} className="h-3 glass-panel" />
-          <div className="text-center text-xs font-medium">{textState.progress}%</div>
+
+          <Progress
+            value={textState.progress}
+            className="h-2"
+          />
+
+          <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+            <span>
+              Evidence pipeline
+            </span>
+
+            <span>
+              {textState.progress}%
+            </span>
+          </div>
+
         </Card>
       )}
+
+
+      {/* ======================================================
+          ERROR
+          ====================================================== */}
 
       {textState.error && !isAnalyzing && (
-        <Card className="glass-panel p-4 border-destructive/40 text-destructive">
-          {textState.error}
+        <Card className="border-destructive/40 bg-destructive/5 p-5">
+
+          <div className="flex gap-3">
+
+            <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
+
+            <div>
+              <p className="font-semibold text-destructive">
+                Verification failed
+              </p>
+
+              <p className="text-sm text-muted-foreground mt-1">
+                {textState.error}
+              </p>
+            </div>
+
+          </div>
+
         </Card>
       )}
 
-      <AnimatePresence>
-        {result && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-            {/* Unified Hero Verdict Card */}
-            {(() => {
-              const vv = result.verifiedVerdict || (result.category === "authentic" ? "Verified" : result.category === "fake" ? "False Information" : "Misleading");
-              const s = VV_STYLE[vv] || VV_STYLE["Verified"];
-              const conf = Math.round(result.confidence || 0);
 
-              // Calculate genuine Content Credibility Score
-              const credibilityScore = vv === "Verified"
-                ? Math.max(85, conf)
-                : vv === "False Information"
-                ? Math.max(5, 100 - conf)
-                : vv === "Misleading" || vv === "Partially True"
-                ? Math.round(Math.max(20, Math.min(65, 100 - conf * 0.6)))
-                : 50;
+      {/* ======================================================
+          RESULT
+          ====================================================== */}
 
-              return (
-                <Card className={`glass-panel p-6 border-2 ${s.cls} animate-glass-ripple`}>
-                  <div className="flex items-center justify-between gap-6 flex-wrap">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-2xl bg-background/40 backdrop-blur-md shadow-md">{s.icon}</div>
-                      <div>
-                        <p className="text-xs uppercase tracking-widest opacity-75 mb-1 font-semibold">Verified News Verdict</p>
-                        <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">{s.label}</h2>
-                        {result.verifiedAt && (
-                          <p className="text-[11px] opacity-75 mt-1 flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> Scanned at {new Date(result.verifiedAt).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+      {result && !isAnalyzing && (
 
-                    <div className="flex items-center gap-6">
-                      <div className="text-center px-4 py-2 rounded-xl bg-background/20 backdrop-blur-sm border border-white/10">
-                        <p className="text-[10px] uppercase tracking-widest opacity-75 font-semibold">Content Credibility</p>
-                        <div className="text-3xl md:text-4xl font-extrabold tabular-nums">{credibilityScore}%</div>
-                      </div>
+        <div className="space-y-5">
 
-                      <div className="text-center px-4 py-2 rounded-xl bg-background/20 backdrop-blur-sm border border-white/10">
-                        <p className="text-[10px] uppercase tracking-widest opacity-75 font-semibold">Detection Confidence</p>
-                        <div className="text-3xl md:text-4xl font-extrabold tabular-nums">{conf}%</div>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })()}
+          {/* ==================================================
+              FINAL VERDICT
+              ================================================== */}
 
-            {/* Correction / What actually happened */}
-            {result.correction?.needed && (
-              <Card className="glass-panel p-5 border-2 border-primary/40 animate-glass-ripple">
-                <div className="flex items-center gap-2 mb-3">
-                  <PencilLine className="w-4 h-4 text-primary" />
-                  <p className="text-xs uppercase tracking-widest text-primary font-semibold">Corrected Information</p>
+          <Card
+            className={`p-6 border ${config.className}`}
+          >
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+
+              <div className="flex items-center gap-4">
+
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-background/40">
+                  <VerdictIcon className="w-8 h-8" />
                 </div>
-                {result.correction.correctedClaim && (
-                  <div className="mb-3">
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Corrected claim</p>
-                    <p className="text-sm font-medium leading-relaxed">{result.correction.correctedClaim}</p>
-                  </div>
-                )}
-                {result.correction.whatActuallyHappened && (
-                  <div className="mb-3">
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">What actually happened</p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{result.correction.whatActuallyHappened}</p>
-                  </div>
-                )}
-                {result.correction.inaccurateParts && result.correction.inaccurateParts.length > 0 && (
-                  <div className="mb-3">
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Inaccurate or fabricated parts</p>
-                    <ul className="space-y-1">
-                      {result.correction.inaccurateParts.map((p, i) => (
-                        <li key={i} className="text-sm text-destructive flex gap-2"><span className="mt-0.5">✗</span><span className="text-foreground/90">{p}</span></li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {result.correction.reasons && result.correction.reasons.length > 0 && (
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Why they're wrong</p>
-                    <ul className="space-y-1">
-                      {result.correction.reasons.map((p, i) => (
-                        <li key={i} className="text-sm text-muted-foreground flex gap-2"><span className="text-warning mt-0.5">•</span><span>{p}</span></li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </Card>
-            )}
 
-            {/* Event summary */}
-            {result.eventSummary && Object.values(result.eventSummary).some(v => v && String(v).trim()) && (
-              <Card className="glass-panel p-5 animate-glass-ripple">
-                <div className="flex items-center gap-2 mb-3">
-                  <Newspaper className="w-4 h-4 text-primary" />
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">Event Summary</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {([
-                    ["What", result.eventSummary.what],
-                    ["When", result.eventSummary.when],
-                    ["Where", result.eventSummary.where],
-                    ["Who", result.eventSummary.who],
-                    ["Why", result.eventSummary.why],
-                    ["Latest", result.eventSummary.latest],
-                  ] as const).map(([label, val]) => (val && String(val).trim()) ? (
-                    <div key={label} className="p-3 glass-panel rounded-lg">
-                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
-                      <p className="text-sm">{val}</p>
-                    </div>
-                  ) : null)}
-                </div>
-                {result.eventSummary.context && result.eventSummary.context.trim() && (
-                  <div className="mt-3 p-3 rounded-lg border border-border/50 bg-muted/20">
-                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Context</p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{result.eventSummary.context}</p>
-                  </div>
-                )}
-              </Card>
-            )}
+                <div>
 
-            {/* Trusted sources referenced */}
-            {(result.liveSearchUsed || (result.evidenceUsed && result.evidenceUsed.length > 0)) && (
-              <Card className="glass-panel p-5 animate-glass-ripple">
-                <div className="flex items-center gap-2 mb-3">
-                  <Newspaper className="w-4 h-4 text-primary" />
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">
-                    Live Web &amp; Social Cross-Check
+                  <p className="text-xs uppercase tracking-[0.2em] opacity-70">
+                    Final Verification Verdict
+                  </p>
+
+                  <h2 className="text-3xl font-black tracking-tight mt-1">
+                    {config.label}
+                  </h2>
+
+                  <p className="text-sm opacity-80 mt-1">
+                    {config.description}
+                  </p>
+
+                </div>
+
+              </div>
+
+
+              <div className="grid grid-cols-2 gap-3">
+
+                <div className="rounded-xl border border-border/50 bg-background/40 px-5 py-3 text-center">
+
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Evidence Confidence
+                  </p>
+
+                  <p className="text-2xl font-bold mt-1">
+                    {(finalConfidence * 100).toFixed(2)}%
+                  </p>
+
+                </div>
+
+
+                <div className="rounded-xl border border-border/50 bg-background/40 px-5 py-3 text-center">
+
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Evidence Verdict
+                  </p>
+
+                  <p className="text-sm font-bold mt-2">
+                   {evidenceVerdict.replace(/_/g, " ")}
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </Card>
+
+
+          {/* ==================================================
+              CLAIM + REASON
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center gap-2 mb-4">
+              <Scale className="w-4 h-4 text-primary" />
+
+              <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                Verification Summary
+              </p>
+            </div>
+
+
+            <div className="rounded-xl border border-border/50 bg-background/30 p-4">
+
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                Claim
+              </p>
+
+              <p className="text-base leading-relaxed font-medium">
+                {result.text || text}
+              </p>
+
+            </div>
+
+
+            <div className="rounded-xl border border-border/50 bg-background/30 p-4 mt-3">
+
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                Reason
+              </p>
+
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {result.reason ||
+                  "The claim was evaluated against available evidence."}
+              </p>
+
+            </div>
+
+          </Card>
+
+
+          {/* ==================================================
+              EVIDENCE SCORE
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center gap-2 mb-5">
+              <Brain className="w-4 h-4 text-primary" />
+
+              <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                Evidence Analysis
+              </p>
+            </div>
+
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+              <div className="rounded-xl border border-success/30 bg-success/5 p-4">
+
+                <p className="text-xs text-muted-foreground">
+                  Supporting Score
+                </p>
+
+                <p className="text-2xl font-bold text-success mt-1">
+  {Number(
+    evidenceVerification?.scores?.supports || 0
+  ).toFixed(3)}
+</p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+
+                <p className="text-xs text-muted-foreground">
+                  Refuting Score
+                </p>
+
+                <p className="text-2xl font-bold text-destructive mt-1">
+  {Number(
+    evidenceVerification?.scores?.refutes || 0
+  ).toFixed(3)}
+</p>
+
+              </div>
+
+
+              <div className="rounded-xl border border-border/50 bg-background/30 p-4">
+
+                <p className="text-xs text-muted-foreground">
+                  Neutral Score
+                </p>
+
+                <p className="text-2xl font-bold mt-1">
+  {Number(
+    evidenceVerification?.scores?.neutral || 0
+  ).toFixed(3)}
+</p>
+
+              </div>
+
+            </div>
+
+
+            <div className="mt-5 rounded-xl border border-border/50 bg-background/30 p-4">
+
+              <div className="flex items-center justify-between">
+
+                <span className="text-sm text-muted-foreground">
+                  Evidence passages evaluated
+                </span>
+
+                <span className="font-bold">
+                  {evidenceVerification?.evidence_count || 0}
+                </span>
+
+              </div>
+
+              <div className="flex items-center justify-between mt-2">
+
+                <span className="text-sm text-muted-foreground">
+                  Sources evaluated
+                </span>
+
+                <span className="font-bold">
+                  {sourceSummary?.total_sources || 0}
+                </span>
+
+              </div>
+
+            </div>
+
+          </Card>
+
+
+          {/* ==================================================
+              SOURCE COVERAGE
+              ================================================== */}
+
+          {sourceSummary && (
+            <Card className="glass-panel p-5">
+
+              <div className="flex items-center gap-2 mb-5">
+                <Newspaper className="w-4 h-4 text-primary" />
+
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                  Source Coverage
+                </p>
+              </div>
+
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+                <div className="rounded-xl border border-border/50 bg-background/30 p-4">
+                  <p className="text-xs text-muted-foreground">
+                    Total
+                  </p>
+                  <p className="text-xl font-bold mt-1">
+                    {sourceSummary.total_sources || 0}
                   </p>
                 </div>
 
-                {result.sourceCoverage && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-                    <div className="p-3 rounded-lg glass-panel border border-success/40">
-                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Corroborating</p>
-                      <p className="text-2xl font-extrabold tabular-nums text-success">{result.sourceCoverage.corroboratingOutlets ?? 0}</p>
-                    </div>
-                    <div className="p-3 rounded-lg glass-panel border border-destructive/40">
-                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Contradicting</p>
-                      <p className="text-2xl font-extrabold tabular-nums text-destructive">{result.sourceCoverage.contradictingOutlets ?? 0}</p>
-                    </div>
-                    <div className="p-3 rounded-lg glass-panel border border-border/50">
-                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Spread</p>
-                      <p className="text-sm font-semibold mt-1">{result.sourceCoverage.socialOnly ? "Social media only" : "Reported by outlets"}</p>
-                    </div>
-                  </div>
-                )}
-                {result.sourceCoverage?.summary && (
-                  <p className="text-sm text-muted-foreground mb-4">{result.sourceCoverage.summary}</p>
-                )}
+                <div className="rounded-xl border border-success/30 bg-success/5 p-4">
+                  <p className="text-xs text-muted-foreground">
+                    Supporting
+                  </p>
+                  <p className="text-xl font-bold text-success mt-1">
+                    {sourceSummary.supporting_sources || 0}
+                  </p>
+                </div>
 
-                {result.evidenceUsed && result.evidenceUsed.length > 0 && (
-                  <div className="space-y-2">
-                    {result.evidenceUsed.map((e, i) => (
-                      <a
-                        key={i}
-                        href={e.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`block p-3 rounded-lg border transition-all hover:-translate-y-0.5 ${STANCE_CLS[e.stance || "context"]}`}
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                  <p className="text-xs text-muted-foreground">
+                    Refuting
+                  </p>
+                  <p className="text-xl font-bold text-destructive mt-1">
+                    {sourceSummary.refuting_sources || 0}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-border/50 bg-background/30 p-4">
+                  <p className="text-xs text-muted-foreground">
+                    Neutral
+                  </p>
+                  <p className="text-xl font-bold mt-1">
+                    {sourceSummary.neutral_sources || 0}
+                  </p>
+                </div>
+
+              </div>
+
+            </Card>
+          )}
+
+
+          {/* ==================================================
+              EVIDENCE PASSAGES
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center justify-between mb-5">
+
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-primary" />
+
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                  Verified Evidence
+                </p>
+              </div>
+
+              <span className="text-xs text-muted-foreground">
+                {evidenceResults.length} passages
+              </span>
+
+            </div>
+
+
+            {evidenceResults.length === 0 ? (
+
+              <div className="rounded-xl border border-border/50 bg-background/30 p-6 text-center">
+
+                <HelpCircle className="w-7 h-7 mx-auto text-muted-foreground mb-2" />
+
+                <p className="font-medium">
+                  No decisive evidence found
+                </p>
+
+                <p className="text-sm text-muted-foreground mt-1">
+                  The system therefore keeps the final verdict
+                  conservative.
+                </p>
+
+              </div>
+
+            ) : (
+
+              <div className="space-y-3">
+
+                {evidenceResults.map(
+                  (evidence, index) => {
+
+                    const evidenceVerdict =
+                      String(
+                        evidence.final_evidence_verdict ||
+                          evidence.nli_verdict ||
+                          "NOT_ENOUGH_INFO"
+                      ).toUpperCase();
+
+                    const isSupport =
+                      evidenceVerdict ===
+                      "SUPPORTS";
+
+                    const isRefute =
+                      evidenceVerdict ===
+                      "REFUTES";
+
+                    const evidenceClass =
+                      isSupport
+                        ? "border-success/30 bg-success/5"
+                        : isRefute
+                          ? "border-destructive/30 bg-destructive/5"
+                          : "border-border/50 bg-background/20";
+
+                    return (
+                      <div
+                        key={`${evidence.source || "source"}-${index}`}
+                        className={`rounded-xl border p-4 ${evidenceClass}`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium text-foreground line-clamp-1">{e.title || e.url}</span>
-                          <span className="text-[10px] uppercase tracking-wider shrink-0">{e.stance || "context"}</span>
+
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+
+                          <div className="flex-1">
+
+                            <div className="flex items-center gap-2 mb-2">
+
+                              {isSupport ? (
+                                <CheckCircle2 className="w-4 h-4 text-success" />
+                              ) : isRefute ? (
+                                <XCircle className="w-4 h-4 text-destructive" />
+                              ) : (
+                                <HelpCircle className="w-4 h-4 text-muted-foreground" />
+                              )}
+
+                              <span className="text-xs font-bold uppercase tracking-wider">
+                               {evidenceVerdict.replace(/_/g, " ")}
+                              </span>
+
+                            </div>
+
+
+                            {evidence.title && (
+                              <p className="font-semibold">
+                                {evidence.title}
+                              </p>
+                            )}
+
+                            <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                              {evidence.evidence ||
+                                "No evidence passage was returned."}
+                            </p>
+
+                          </div>
+
+
+                          <div className="text-right shrink-0">
+
+                            <p className="text-xs font-semibold">
+                              {evidence.source ||
+                                "Unknown source"}
+                            </p>
+
+                            {typeof evidence.source_quality === "number" && (
+                              <p className="text-[11px] text-muted-foreground mt-1">
+                                Source quality{" "}
+                                {formatScorePercent(
+                                  evidence.source_quality
+                                )}
+                              </p>
+                            )}
+
+                          </div>
+
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{e.source || e.url}</p>
-                        {e.note && <p className="text-xs text-muted-foreground mt-1">{e.note}</p>}
-                      </a>
-                    ))}
-                  </div>
-                )}
 
-                {result.liveSources && result.liveSources.length > 0 && (
-                  <details className="mt-4">
-                    <summary className="text-xs text-muted-foreground cursor-pointer">
-                      All {result.liveSources.length} live results scanned (news, fact-checkers, X, Reddit, Facebook, Instagram, YouTube)
-                    </summary>
-                    <div className="mt-2 space-y-1">
-                      {result.liveSources.map((s, i) => (
-                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary">
-                          <span className="px-1.5 py-0.5 rounded bg-muted/40 text-[10px] uppercase shrink-0">{s.group}</span>
-                          <span className="truncate">{s.title || s.url}</span>
-                          <span className="shrink-0 opacity-60">{s.source}</span>
-                        </a>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </Card>
-            )}
 
-            {result.trustedSources && result.trustedSources.length > 0 && (
-              <Card className="glass-panel p-5 animate-glass-ripple">
-                <div className="flex items-center gap-2 mb-3">
-                  <Landmark className="w-4 h-4 text-primary" />
-                  <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">Cross-referenced Trusted Sources</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {result.trustedSources.map((s, i) => (
-                    <div key={i} className="px-3 py-2 rounded-lg glass-panel border border-border/50 max-w-full">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-3 h-3 text-primary shrink-0" />
-                        <span className="text-sm font-medium">{s.name}</span>
-                        {s.type && <span className="text-[10px] uppercase tracking-wider text-muted-foreground">· {s.type}</span>}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+
+                          <div className="rounded-lg bg-background/40 p-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              Proposition
+                            </p>
+                            <p className="text-xs font-semibold mt-1">
+                              {evidence.proposition_relationship ||
+                                "UNKNOWN"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg bg-background/40 p-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              NLI
+                            </p>
+                            <p className="text-xs font-semibold mt-1">
+                              {evidence.nli_verdict ||
+                                "NOT_ENOUGH_INFO"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg bg-background/40 p-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              Similarity
+                            </p>
+                            <p className="text-xs font-semibold mt-1">
+                              {formatScorePercent(
+                                evidence.similarity
+                              )}
+                            </p>
+                          </div>
+
+                          <div className="rounded-lg bg-background/40 p-2">
+                            <p className="text-[10px] text-muted-foreground">
+                              Directness
+                            </p>
+                            <p className="text-xs font-semibold mt-1">
+                              {formatScorePercent(
+                                evidence.directness
+                              )}
+                            </p>
+                          </div>
+
+                        </div>
+
+
+                        {evidence.correction_reason && (
+                          <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+
+                            <p className="text-[10px] uppercase tracking-wider text-warning mb-1">
+                              Evidence interpretation
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              {evidence.correction_reason}
+                            </p>
+
+                          </div>
+                        )}
+
+
+                        {evidence.url && (
+                          <a
+                            href={evidence.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-3"
+                          >
+                            Open source
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+
                       </div>
-                      {s.note && <p className="text-xs text-muted-foreground mt-1">{s.note}</p>}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-3">
-                  Sources named from the model's trained knowledge of established news agencies, government bodies and fact-checkers. Always confirm with the outlet directly for breaking events.
-                </p>
-              </Card>
+                    );
+                  }
+                )}
+
+              </div>
+
             )}
 
-            {/* Text Model Probability Breakdown */}
-{result.probabilities && (
-  <Card className="glass-panel p-5 animate-glass-ripple">
-    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
-      Probability Breakdown
-    </p>
+          </Card>
 
-    {(() => {
-      const probabilities = result.probabilities as Record<string, number>;
 
-      // --------------------------------------------------
-      // Convert model probabilities to percentages
-      // GhostFaith/distilbert-fakenews:
-      // LABEL_0 = REAL
-      // LABEL_1 = FAKE
-      // --------------------------------------------------
+          {/* ==================================================
+              SOURCE RESULTS
+              ================================================== */}
 
-      const realProbability =
-        typeof probabilities.LABEL_0 === "number"
-          ? probabilities.LABEL_0 * 100
-          : typeof probabilities.real === "number"
-            ? probabilities.real
-            : 0;
+          {sourceResults.length > 0 && (
+            <Card className="glass-panel p-5">
 
-      const fakeProbability =
-        typeof probabilities.LABEL_1 === "number"
-          ? probabilities.LABEL_1 * 100
-          : typeof probabilities.fake === "number"
-            ? probabilities.fake
-            : 0;
+              <div className="flex items-center gap-2 mb-5">
+                <ShieldCheck className="w-4 h-4 text-primary" />
 
-      const probabilityItems = [
-        {
-          label: "Real",
-          value: realProbability,
-          tone: "success",
-        },
-        {
-          label: "Fake",
-          value: fakeProbability,
-          tone: "destructive",
-        },
-      ] as const;
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                  Source-Level Verification
+                </p>
+              </div>
 
-      return (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {probabilityItems.map(({ label, value, tone }) => (
-              <div
-                key={label}
-                className={`p-3 rounded-lg glass-panel border ${
-                  tone === "success"
-                    ? "border-success/40"
-                    : "border-destructive/40"
-                }`}
-              >
-                <p
-                  className={`text-xs font-medium ${
-                    tone === "success"
-                      ? "text-success"
-                      : "text-destructive"
-                  }`}
-                >
-                  {label}
+
+              <div className="space-y-3">
+
+                {sourceResults.map(
+                  (source, index) => {
+
+                    const sourceVerdict =
+                      String(
+                        source.verdict ||
+                          "NOT_ENOUGH_INFO"
+                      ).toUpperCase();
+
+                    return (
+                      <div
+                        key={`${source.source || "source"}-${index}`}
+                        className="rounded-xl border border-border/50 bg-background/20 p-4"
+                      >
+
+                        <div className="flex items-center justify-between gap-3">
+
+                          <div>
+
+                            <p className="font-semibold">
+                              {source.source ||
+                                "Unknown source"}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {source.evidence_count || 0} evidence passages
+                            </p>
+
+                          </div>
+
+                          <span
+                            className={`px-3 py-1 rounded-full text-[10px] font-bold border ${
+                              sourceVerdict === "SUPPORTS"
+                                ? "text-success border-success/30 bg-success/5"
+                                : sourceVerdict === "REFUTES"
+                                  ? "text-destructive border-destructive/30 bg-destructive/5"
+                                  : "text-muted-foreground border-border/50"
+                            }`}
+                          >
+                            {sourceVerdict.replace(/_/g, " ")}
+                          </span>
+
+                        </div>
+
+
+                        {source.best_evidence && (
+                          <p className="text-sm text-muted-foreground leading-relaxed mt-3">
+                            {source.best_evidence}
+                          </p>
+                        )}
+
+                      </div>
+                    );
+                  }
+                )}
+
+              </div>
+
+            </Card>
+          )}
+
+
+          {/* ==================================================
+              FACT CHECKS
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center justify-between mb-5">
+
+              <div className="flex items-center gap-2">
+                <FileCheck2 className="w-4 h-4 text-primary" />
+
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                  Google Fact Checks
+                </p>
+              </div>
+
+              <span className="text-xs text-muted-foreground">
+                {factChecks.length} results
+              </span>
+
+            </div>
+
+
+            {factChecks.length === 0 ? (
+
+              <div className="rounded-xl border border-border/50 bg-background/30 p-5">
+
+                <p className="text-sm font-medium">
+                  No matching fact-check article was found.
                 </p>
 
-                <p className="text-2xl font-extrabold tabular-nums mt-1">
-                  {value.toFixed(2)}%
+                <p className="text-xs text-muted-foreground mt-1">
+                  The final decision therefore relies primarily
+                  on retrieved web evidence and NLI.
                 </p>
+
+              </div>
+
+            ) : (
+
+              <div className="space-y-3">
+
+                {factChecks.map(
+                  (factCheck, index) => {
+
+                    const rating =
+                      factCheck.normalized_rating ||
+                      factCheck.rating ||
+                      "UNRATED";
+
+                    return (
+                      <div
+                        key={`${factCheck.url || "factcheck"}-${index}`}
+                        className="rounded-xl border border-border/50 bg-background/20 p-4"
+                      >
+
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+
+                          <div className="flex-1">
+
+                            <p className="font-semibold">
+                              {factCheck.publisher ||
+                                "Fact-check publisher"}
+                            </p>
+
+                            {factCheck.title && (
+                              <p className="text-sm mt-1">
+                                {factCheck.title}
+                              </p>
+                            )}
+
+                            <p className="text-xs text-muted-foreground mt-2">
+                              {factCheck.claim ||
+                                "Related fact-check claim"}
+                            </p>
+
+                          </div>
+
+
+                          <span className="px-3 py-1 rounded-full border border-border/50 bg-background/40 text-xs font-bold">
+                            {rating}
+                          </span>
+
+                        </div>
+
+
+                        <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-muted-foreground">
+
+                          {typeof factCheck.relevance_score === "number" && (
+                            <span>
+                              Relevance{" "}
+                              {formatScorePercent(
+                                factCheck.relevance_score
+                              )}
+                            </span>
+                          )}
+
+                          {typeof factCheck.publisher_quality === "number" && (
+                            <span>
+                              Publisher quality{" "}
+                              {formatScorePercent(
+                                factCheck.publisher_quality
+                              )}
+                            </span>
+                          )}
+
+                        </div>
+
+
+                        {factCheck.url && (
+                          <a
+                            href={factCheck.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-3"
+                          >
+                            Open fact check
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+
+                      </div>
+                    );
+                  }
+                )}
+
+              </div>
+
+            )}
+
+          </Card>
+
+
+          {/* ==================================================
+              NEWS / WEB SOURCES
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center justify-between mb-5">
+
+              <div className="flex items-center gap-2">
+                <Newspaper className="w-4 h-4 text-primary" />
+
+                <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                  News & Web Evidence
+                </p>
+              </div>
+
+              <span className="text-xs text-muted-foreground">
+                {webEvidence.length} sources
+              </span>
+
+            </div>
+
+
+            {webEvidence.length === 0 ? (
+
+              <div className="rounded-xl border border-border/50 bg-background/30 p-5">
+
+                <p className="text-sm font-medium">
+                  No web evidence was retrieved.
+                </p>
+
+              </div>
+
+            ) : (
+
+              <div className="space-y-3">
+
+                {webEvidence.map(
+                  (source, index) => {
+
+                    const sourceUrl =
+                      source.article_url ||
+                      source.publisher_url ||
+                      source.google_news_url;
+
+                    return (
+                      <div
+                        key={`${sourceUrl || "web"}-${index}`}
+                        className="rounded-xl border border-border/50 bg-background/20 p-4"
+                      >
+
+                        <div className="flex items-start gap-3">
+
+                          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                            <Newspaper className="w-4 h-4 text-primary" />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+
+                            <p className="font-semibold">
+                              {source.title ||
+                                "Web evidence"}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {source.publisher ||
+                                "Unknown publisher"}
+                            </p>
+
+                            {source.description && (
+                              <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                                {source.description}
+                              </p>
+                            )}
+
+                            {source.published && (
+                              <p className="text-[11px] text-muted-foreground mt-2">
+                                Published: {source.published}
+                              </p>
+                            )}
+
+                            {sourceUrl && (
+                              <a
+                                href={sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mt-3"
+                              >
+                                View source
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    );
+                  }
+                )}
+
+              </div>
+
+            )}
+
+          </Card>
+
+
+          {/* ==================================================
+              CLASSIFIER
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center gap-2 mb-5">
+              <Brain className="w-4 h-4 text-primary" />
+
+              <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                Secondary ML Classifier
+              </p>
+            </div>
+
+
+            <div className="rounded-xl border border-border/50 bg-background/20 p-4 mb-4">
+
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+
+                <div>
+
+                  <p className="font-semibold">
+                    {classifier?.model ||
+                      "GhostFaith/distilbert-fakenews"}
+                  </p>
+
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Device: {classifier?.device || "unknown"}
+                  </p>
+
+                </div>
+
+                <div className="text-left md:text-right">
+
+                  <p className="text-xs text-muted-foreground">
+                    Classifier output
+                  </p>
+
+                  <p className="font-bold mt-1">
+                    {classifier?.label || "UNKNOWN"}
+                  </p>
+
+                  <p className="text-xs text-muted-foreground">
+                    {formatPercent(
+                      classifierConfidence
+                    )}
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+
+                <div className="flex justify-between">
+
+                  <span className="text-sm">
+                    Real probability
+                  </span>
+
+                  <span className="font-bold">
+                    {formatPercent(
+                      realProbability
+                    )}
+                  </span>
+
+                </div>
 
                 <Progress
-                  value={Math.min(100, Math.max(0, value))}
-                  className="h-1.5 mt-2"
+                  value={realProbability * 100}
+                  className="mt-3 h-2"
                 />
+
               </div>
-            ))}
+
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+
+                <div className="flex justify-between">
+
+                  <span className="text-sm">
+                    Fake probability
+                  </span>
+
+                  <span className="font-bold">
+                    {formatPercent(
+                      fakeProbability
+                    )}
+                  </span>
+
+                </div>
+
+                <Progress
+                  value={fakeProbability * 100}
+                  className="mt-3 h-2"
+                />
+
+              </div>
+
+            </div>
+
+
+            <div className="mt-4 rounded-xl border border-warning/20 bg-warning/5 p-4">
+
+              <div className="flex gap-3">
+
+                <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  This classifier is a secondary signal.
+                  VeriFact does not use the classifier alone
+                  to determine whether a factual claim is true.
+                  The final text verdict is based on retrieved
+                  evidence, proposition direction and NLI.
+                </p>
+
+              </div>
+
+            </div>
+
+          </Card>
+
+
+          {/* ==================================================
+              TECHNICAL DETAILS
+              ================================================== */}
+
+          <Card className="glass-panel p-5">
+
+            <div className="flex items-center gap-2 mb-5">
+              <BadgeCheck className="w-4 h-4 text-primary" />
+
+              <p className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">
+                Verification Pipeline
+              </p>
+            </div>
+
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Fact Check
+                </p>
+                <p className="font-bold mt-1">
+                  {result.factcheck_used
+                    ? "USED"
+                    : "NOT DOMINANT"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Web Sources
+                </p>
+                <p className="font-bold mt-1">
+                  {webEvidence.length}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Evidence Passages
+                </p>
+                <p className="font-bold mt-1">
+                  {evidenceResults.length}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+                <p className="text-xs text-muted-foreground">
+                  Processing Time
+                </p>
+                <p className="font-bold mt-1">
+                  {result.executionTimeMs
+                    ? `${result.executionTimeMs} ms`
+                    : "—"}
+                </p>
+              </div>
+
+            </div>
+
+
+            {result.speedMetrics?.throughputLabel && (
+              <p className="text-xs text-muted-foreground mt-4">
+                Processing throughput:{" "}
+                {result.speedMetrics.throughputLabel}
+              </p>
+            )}
+
+          </Card>
+
+
+          {/* ==================================================
+              DISCLAIMER
+              ================================================== */}
+
+          <div className="rounded-xl border border-border/50 bg-background/20 p-4">
+
+            <div className="flex gap-3">
+
+              <HelpCircle className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                VeriFact uses retrieved evidence to assess claims.
+                A result of UNVERIFIED means the available evidence
+                was insufficient or inconclusive; it should not be
+                interpreted as proof that the claim is false.
+              </p>
+
+            </div>
+
           </div>
 
-          <p className="text-[11px] text-muted-foreground mt-3">
-            Probability scores indicate how strongly the text
-            was classified toward the Real or Fake category.
-          </p>
-        </>
-      );
-    })()}
-  </Card>
-)}
+        </div>
+      )}
 
-            {/* Detailed analysis — one section at a time via tabs */}
-            {(() => {
-              const tabs: { id: string; label: string; show: boolean }[] = [
-                { id: "summary", label: "Summary", show: true },
-                { id: "scores", label: "Threat Scores", show: !!result.scores },
-                { id: "facts", label: "Fact Check", show: !!(result.factChecks && result.factChecks.length) },
-                { id: "history", label: "History", show: !!(result.historicalContext && result.historicalContext.trim()) },
-                { id: "incons", label: "Inconsistencies", show: !!(result.inconsistencies && result.inconsistencies.length) },
-                { id: "propaganda", label: "Propaganda", show: !!(result.propagandaTechniques && result.propagandaTechniques.length) },
-                { id: "tactics", label: "Tactics", show: !!(result.manipulationTactics && result.manipulationTactics.length) },
-                { id: "explain", label: "Explanation", show: !!result.aiExplanation },
-              ].filter(t => t.show);
-
-              return (
-                <Card className="glass-panel p-4 md:p-5 animate-glass-ripple">
-                  <Tabs defaultValue={tabs[0].id} className="w-full">
-                    <TabsList className="flex flex-wrap gap-1 h-auto bg-transparent p-0 mb-4 border-b border-border/40 rounded-none w-full justify-start">
-                      {tabs.map(t => (
-                        <TabsTrigger
-                          key={t.id}
-                          value={t.id}
-                          className="rounded-md data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none text-xs md:text-sm"
-                        >
-                          {t.label}
-                        </TabsTrigger>
-                      ))}
-                    </TabsList>
-
-                    {/* Summary */}
-                    <TabsContent value="summary" className="mt-0 space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-3 rounded-full glass-glow ${catCls(result.category)}`}>{icon(result.category)}</div>
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold capitalize">{result.category}</h3>
-                          <p className="text-sm text-muted-foreground">Confidence: {result.confidence}%
-                            {result.biasDirection && result.biasDirection !== "unknown" && <> · Bias: <span className={`font-medium capitalize ${BIAS_COLORS[result.biasDirection] || ""}`}>{result.biasDirection}</span></>}
-                          </p>
-                        </div>
-                        <Progress value={result.confidence} className="h-3 w-1/3 glass-panel" />
-                      </div>
-                      <p className="text-sm text-muted-foreground border-t border-border/50 pt-4">{result.analysis}</p>
-                      {!result.isAuthentic && (
-                        <div className="p-4 glass-panel rounded-lg border-2 border-destructive glass-glow">
-                          <p className="text-destructive font-bold text-lg">⚠ FAKE NEWS DETECTED</p>
-                          <p className="text-sm text-muted-foreground mt-1">This content shows multiple signs of misinformation</p>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    {/* Threat Scores */}
-                    {result.scores && (
-                      <TabsContent value="scores" className="mt-0">
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {([
-                            ["Fake News", result.scores.fakeNewsProbability],
-                            ["Propaganda", result.scores.propagandaLevel],
-                            ["Bias", result.scores.biasScore],
-                            ["Sentiment Manipulation", result.scores.sentimentManipulation],
-                            ["Source Credibility", result.scores.sourceCredibility],
-                            ["AI-Generated", result.scores.aiGeneratedProbability],
-                          ] as const).map(([label, val]) => (
-                            <div key={label} className="p-3 glass-panel rounded-lg">
-                              <p className="text-xs text-muted-foreground mb-2">{label}</p>
-                              <Progress value={val} className="h-2" />
-                              <p className="text-xs font-medium mt-1">{val}%</p>
-                            </div>
-                          ))}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    {/* Fact Checks */}
-                    {result.factChecks && result.factChecks.length > 0 && (
-                      <TabsContent value="facts" className="mt-0">
-                        <div className="flex items-center gap-2 mb-3">
-                          <FileSearch className="h-4 w-4 text-primary" />
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">Claim Fact-Check</p>
-                        </div>
-                        <div className="space-y-2">
-                          {result.factChecks.map((fc, i) => {
-                            const cls = fc.status === "supported"
-                              ? "border-success/40 bg-success/10 text-success"
-                              : fc.status === "contradicted"
-                              ? "border-destructive/40 bg-destructive/10 text-destructive"
-                              : "border-warning/40 bg-warning/10 text-warning";
-                            return (
-                              <div key={i} className="p-3 glass-panel rounded-lg">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <p className="text-sm font-medium flex-1">"{fc.claim}"</p>
-                                  <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${cls}`}>{fc.status}</span>
-                                </div>
-                                {fc.note && <p className="text-xs text-muted-foreground">{fc.note}</p>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    {/* History */}
-                    {result.historicalContext && result.historicalContext.trim() && (
-                      <TabsContent value="history" className="mt-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <History className="h-4 w-4 text-primary" />
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">Historical Context</p>
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{result.historicalContext}</p>
-                      </TabsContent>
-                    )}
-
-                    {/* Inconsistencies */}
-                    {result.inconsistencies && result.inconsistencies.length > 0 && (
-                      <TabsContent value="incons" className="mt-0">
-                        <div className="flex items-center gap-2 mb-3">
-                          <GitCompare className="h-4 w-4 text-warning" />
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">Inconsistencies & Unsupported Statements</p>
-                        </div>
-                        <ul className="space-y-1.5">
-                          {result.inconsistencies.map((item, i) => (
-                            <li key={i} className="text-sm text-muted-foreground flex gap-2">
-                              <span className="text-warning mt-0.5">•</span>
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </TabsContent>
-                    )}
-
-                    {/* Propaganda */}
-                    {result.propagandaTechniques && result.propagandaTechniques.length > 0 && (
-                      <TabsContent value="propaganda" className="mt-0">
-                        <div className="flex items-center gap-2 mb-3">
-                          <MessageCircleWarning className="h-4 w-4 text-warning" />
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">Propaganda Techniques</p>
-                        </div>
-                        <div className="space-y-2">
-                          {result.propagandaTechniques.map((pt, i) => (
-                            <div key={i} className="p-3 glass-panel rounded-lg">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-medium">{pt.name}</span>
-                                <span className="text-xs text-muted-foreground">{pt.confidence}%</span>
-                              </div>
-                              <p className="text-xs text-muted-foreground italic">"{pt.example}"</p>
-                            </div>
-                          ))}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    {/* Tactics */}
-                    {result.manipulationTactics && result.manipulationTactics.length > 0 && (
-                      <TabsContent value="tactics" className="mt-0">
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3">Manipulation Tactics</p>
-                        <div className="flex flex-wrap gap-2">
-                          {result.manipulationTactics.map((mt, i) => (
-                            <span key={i} className={`px-3 py-1.5 rounded-full border text-xs font-medium ${SEVERITY_CLS[mt.severity]}`}>{mt.tactic}</span>
-                          ))}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    {/* AI Explanation */}
-                    {result.aiExplanation && (
-                      <TabsContent value="explain" className="mt-0">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Brain className="h-4 w-4 text-primary" />
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">AI Expert Explanation</p>
-                        </div>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{result.aiExplanation}</p>
-                      </TabsContent>
-                    )}
-                  </Tabs>
-                </Card>
-              );
-            })()}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };
