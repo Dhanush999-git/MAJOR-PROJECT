@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { AppHeader } from "@/components/AppHeader";
+import { AppFooter } from "@/components/AppFooter";
 import { BackToTop } from "@/components/BackToTop";
 import { useAuth } from "@/contexts/AuthContext";
 import { useScans, type Scan } from "@/hooks/useScans";
-import { ShieldCheck, Sparkles, History, Image, FileText, Video, Globe, AlertTriangle, Loader2, Download } from "lucide-react";
+import { ShieldCheck, Sparkles, History, Image, FileText, Video, Globe, Mic, FileCheck2, AlertTriangle, Loader2, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,10 +69,12 @@ function CircularProgress({ value, size = 110, strokeWidth = 9, label, color }: 
 
 /* ── Scan type icon helper ───────────────────── */
 const TYPE_ICON: Record<string, React.ReactNode> = {
-  image: <Image className="h-4 w-4" />,
-  text: <FileText className="h-4 w-4" />,
-  video: <Video className="h-4 w-4" />,
-  url: <Globe className="h-4 w-4" />,
+  image: <Image className="h-4 w-4 text-blue-400" />,
+  text: <FileText className="h-4 w-4 text-violet-400" />,
+  video: <Video className="h-4 w-4 text-sky-400" />,
+  audio: <Mic className="h-4 w-4 text-amber-400" />,
+  url: <Globe className="h-4 w-4 text-emerald-400" />,
+  document: <FileCheck2 className="h-4 w-4 text-indigo-400" />,
 };
 
 const VERDICT_CLS: Record<string, string> = {
@@ -97,7 +100,7 @@ const Dashboard = () => {
       ? new Date(scans[0].created_at).toLocaleDateString()
       : "—";
 
-    const byType = { image: 0, text: 0, video: 0, url: 0 };
+    const byType = { image: 0, text: 0, video: 0, audio: 0, url: 0, document: 0 };
     scans.forEach(s => {
       const type = s.scan_type as keyof typeof byType;
       if (type in byType) byType[type]++;
@@ -137,18 +140,20 @@ const Dashboard = () => {
     { subject: "Images", value: stats.byType.image },
     { subject: "Text", value: stats.byType.text },
     { subject: "Video", value: stats.byType.video },
+    { subject: "Audio", value: stats.byType.audio },
     { subject: "URLs", value: stats.byType.url },
+    { subject: "Docs", value: stats.byType.document },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-hero">
+    <div className="min-h-screen flex flex-col bg-gradient-hero">
       <Seo
         title="Dashboard | VeriFact"
         description="Your forensic command center — track scans, trust scores and analysis history across text, image, video, audio and URL checks."
         path="/dashboard"
       />
       <AppHeader />
-      <main className="container mx-auto px-4 py-10 max-w-6xl space-y-8">
+      <main className="flex-1 container mx-auto px-4 py-10 max-w-6xl space-y-8">
         {/* Hero heading */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="text-3xl font-bold">Welcome back, {name}</h1>
@@ -239,7 +244,7 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground">{new Date(scan.created_at).toLocaleString()}</p>
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[typeof (scan.details as DynamicRecord).category === "string" ? scan.details.category : ""] || ""}`}>
+                      <p className={`text-sm font-semibold capitalize ${VERDICT_CLS[String(scan.details?.category || "")] || ""}`}>
                         {scan.verdict || "—"}
                       </p>
                       {scan.confidence != null && (
@@ -270,6 +275,7 @@ const Dashboard = () => {
           )}
         </Card>
       </main>
+      <AppFooter />
       <BackToTop />
     </div>
   );

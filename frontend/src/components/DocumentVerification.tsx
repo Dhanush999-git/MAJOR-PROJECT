@@ -15,6 +15,7 @@ import {
 import exifr from "exifr";
 import { generateForensicReport } from "@/lib/forensicReport";
 import type { DynamicRecord, SpeedMetrics } from "@/lib/analysisTypes";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 interface Region { label: string; x: number; y: number; w: number; h: number; severity: "low" | "medium" | "high"; page?: number; }
 interface MetadataFinding { field: string; value: string; risk: "low" | "medium" | "high"; note?: string; }
@@ -110,7 +111,7 @@ export const DocumentVerification = () => {
   const loaderProgress = documentState.progress;
   const result = documentState.result as DocResult | null;
 
-  const runAnalysis = async (f: File) => {
+  const runAnalysis = useCallback(async (f: File) => {
     const buf = await f.arrayBuffer();
     const [dataUrl, sha256] = await Promise.all([readAsDataUrl(f), sha256Hex(buf)]);
     const pdfMeta = f.type === "application/pdf" ? await extractPdfMeta(buf) : undefined;
@@ -125,7 +126,7 @@ export const DocumentVerification = () => {
       } : undefined,
     };
     runDocumentAnalysis(dataUrl, f.type, f.name, signals);
-  };
+  }, [runDocumentAnalysis]);
 
   const acceptFile = useCallback(async (f: File) => {
     const okExt = /\.(pdf|docx?|jpe?g|png|tiff?)$/i.test(f.name);
@@ -138,7 +139,7 @@ export const DocumentVerification = () => {
     setPreviewUrl(url);
     setPreviewKind(f.type.startsWith("image/") ? "image" : f.type === "application/pdf" ? "pdf" : "other");
     runAnalysis(f);
-  }, [user]);
+  }, [runAnalysis]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragActive(false);
@@ -239,12 +240,14 @@ export const DocumentVerification = () => {
                 )}
 
                 {isAnalyzing && (
-                  <motion.div
-                    className="absolute inset-x-0 h-12 pointer-events-none rounded-lg"
-                    style={{ background: "linear-gradient(180deg, transparent, hsl(var(--primary)/0.45), transparent)" }}
-                    initial={{ top: "-10%" }} animate={{ top: ["-10%", "100%"] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                  />
+                  <>
+                    <div className="scan-beam" />
+                    <div className="absolute inset-0 scan-grid-overlay pointer-events-none opacity-60" />
+                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-background/80 backdrop-blur-md border border-primary/40 text-[10px] font-mono font-semibold text-primary flex items-center gap-1.5 shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                      DOCUMENT LASER SCAN
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -254,19 +257,23 @@ export const DocumentVerification = () => {
                     {showRegions ? <><EyeOff className="mr-1 h-3 w-3" />Hide regions</> : <><Eye className="mr-1 h-3 w-3" />Show regions</>}
                   </Button>
                 )}
-                <Button variant="outline" className="glass-panel" onClick={(e) => { e.stopPropagation(); clearAnalysis("document"); setFile(null); setPreviewUrl(null); }}>
+                <Button variant="outline" className="glass-panel text-xs" onClick={(e) => { e.stopPropagation(); clearAnalysis("document"); setFile(null); setPreviewUrl(null); }}>
                   Remove
                 </Button>
-                <Button className="bg-gradient-primary" disabled={isAnalyzing} onClick={(e) => { e.stopPropagation(); if (file) runAnalysis(file); }}>
-                  {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Re-verifying</> : <><Sparkles className="mr-2 h-4 w-4" />Re-verify</>}
+                <Button className="btn-tactile bg-primary text-primary-foreground font-semibold text-xs" disabled={isAnalyzing} onClick={(e) => { e.stopPropagation(); if (file) runAnalysis(file); }}>
+                  {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scanning…</> : <><Sparkles className="mr-2 h-4 w-4" />Re-verify Document</>}
                 </Button>
               </div>
             </div>
           ) : (
             <div className="space-y-4 py-8">
-              <Upload className="h-12 w-12 mx-auto text-muted-foreground" />
-              <p className="text-sm font-medium">Drag & drop or click to upload a document</p>
-              <p className="text-xs text-muted-foreground">PDF, DOCX, JPG, PNG, TIFF — analysed with forensic AI</p>
+              <div className="p-4 rounded-2xl bg-primary/10 text-primary w-fit mx-auto border border-primary/20">
+                <Upload className="h-8 w-8" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Drag and drop document here or click to browse</p>
+                <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, JPG, PNG, TIFF · OCR font audit, metadata integrity & forgery inspection</p>
+              </div>
             </div>
           )}
           <input
@@ -276,30 +283,44 @@ export const DocumentVerification = () => {
         </div>
       </Card>
 
-      {/* Loader */}
+      {documentState.error && !isAnalyzing && (
+        <ForensicErrorNotice
+          title="Document Verification Notice"
+          message={documentState.error}
+          onRetry={() => {
+            if (file) runAnalysis(file);
+          }}
+          onDismiss={() => {
+            clearAnalysis("document");
+            setFile(null);
+            setPreviewUrl(null);
+          }}
+        />
+      )}
+
+      {/* Purposeful Document Loading State */}
       <AnimatePresence>
         {isAnalyzing && (
           <motion.div key="loader" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Card className="glass-panel p-8 text-center space-y-4 overflow-hidden relative">
-              <motion.div
-                className="absolute inset-0 opacity-30 pointer-events-none"
-                style={{ background: "radial-gradient(60% 50% at 50% 50%, hsl(var(--primary)/0.35), transparent)" }}
-                animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}
-              />
+            <Card className="glass-panel p-6 text-center space-y-4 overflow-hidden relative border-primary/30 shadow-lg shadow-primary/10">
               <div className="relative space-y-3">
                 <div className="flex items-center justify-center">
-                  <motion.div
-                    className="h-14 w-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl"
-                    animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  >
-                    <ScanLine className="h-7 w-7 text-primary-foreground" />
-                  </motion.div>
+                  <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shadow-inner">
+                    <ScanLine className="h-6 w-6 animate-pulse" />
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold tracking-tight">Verifying document</h3>
-                <p className="text-xs text-muted-foreground">Reading text, layout, fonts, metadata & forgery signals…</p>
-                <div className="max-w-md mx-auto">
-                  <Progress value={loaderProgress} className="h-2" />
-                  <p className="text-[11px] text-muted-foreground mt-2">{loaderProgress}%</p>
+                <div>
+                  <h3 className="text-base font-bold tracking-tight">Document Forgery & Metadata Audit Active</h3>
+                  <p className="text-xs text-primary font-mono mt-1 font-medium">
+                    {documentState.statusText || "Running OCR text extraction & font anomaly detection..."}
+                  </p>
+                </div>
+                <div className="max-w-md mx-auto space-y-1.5">
+                  <Progress value={loaderProgress} className="h-2 glass-panel" />
+                  <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+                    <span>Document Analysis</span>
+                    <span>{loaderProgress}%</span>
+                  </div>
                 </div>
               </div>
             </Card>

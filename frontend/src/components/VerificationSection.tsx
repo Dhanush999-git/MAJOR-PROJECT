@@ -1,25 +1,82 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Image as ImageIcon, Video as VideoIcon, Mic, Link2, Menu, FileCheck2, QrCode, type LucideIcon } from "lucide-react";
+import {
+  FileText,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  Mic,
+  Link2,
+  Menu,
+  FileCheck2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { TextVerification } from "./TextVerification";
 import { ImageVerification } from "./ImageVerification";
 import { VideoVerification } from "./VideoVerification";
 import { UrlVerification } from "./UrlVerification";
 import { AudioVerification } from "./AudioVerification";
 import { DocumentVerification } from "./DocumentVerification";
-import { QrVerification } from "./QrVerification";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAnalysis, type AnalysisMode } from "@/contexts/AnalysisContext";
 
-const NAV: { id: AnalysisMode; label: string; icon: LucideIcon; title: string; subtitle: string }[] = [
-  { id: "text",  label: "Text",  icon: FileText, title: "Text Fake-News Detection", subtitle: "Analyze text content for misinformation and AI-generated content" },
-  { id: "image", label: "Image", icon: ImageIcon, title: "Image Deepfake Detection", subtitle: "Detect manipulated or AI-generated images" },
-  { id: "video", label: "Video", icon: VideoIcon, title: "Video Deepfake Analysis", subtitle: "Identify deepfake videos and manipulation patterns" },
-  { id: "audio", label: "Audio", icon: Mic,       title: "Audio Forensic Analysis",  subtitle: "Detect AI-generated voice, voice cloning, splicing and tampering" },
-  { id: "url",   label: "URL",   icon: Link2,    title: "URL Fact-Checking",        subtitle: "Verify website credibility and content authenticity" },
-  { id: "document", label: "Document", icon: FileCheck2, title: "Document Verification", subtitle: "Verify PDFs, DOCX and scanned documents for forgery, tampering & AI generation" },
-  { id: "qr", label: "QR Code", icon: QrCode, title: "QR Code Analysis & Scam Protection", subtitle: "Detect phishing QR codes, fake UPI payment traps, physical sticker overlays & malicious redirects" },
+const NAV: {
+  id: AnalysisMode;
+  label: string;
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  tag: string;
+}[] = [
+  {
+    id: "image",
+    label: "Image Analysis",
+    icon: ImageIcon,
+    title: "Image Deepfake & Artifact Detection",
+    subtitle: "Analyze photos and visual media for generative diffusion, spatial anomalies, EXIF & sensor noise",
+    tag: "Vision AI",
+  },
+  {
+    id: "text",
+    label: "Text Verification",
+    icon: FileText,
+    title: "Text Fake-News & Bias Detection",
+    subtitle: "Analyze text content for misinformation, propaganda patterns, sentiment manipulation & fact checks",
+    tag: "NLP Audit",
+  },
+  {
+    id: "video",
+    label: "Video Deepfake",
+    icon: VideoIcon,
+    title: "Video Deepfake & Temporal Analysis",
+    subtitle: "Inspect video streams, frame consistency, face reenactment patterns & synthetic artifacts",
+    tag: "Frame Audit",
+  },
+  {
+    id: "audio",
+    label: "Audio Forensics",
+    icon: Mic,
+    title: "Audio Forensic & Voice Clone Detection",
+    subtitle: "Detect synthetic speech, cloned voices, spectral discontinuities, and audio splicing",
+    tag: "Acoustic AI",
+  },
+  {
+    id: "url",
+    label: "URL Fact-Check",
+    icon: Link2,
+    title: "URL Credibility & Security Fact-Check",
+    subtitle: "Audit web destinations for WHOIS domain age, SSL certificate trust, phishing & threat flags",
+    tag: "Domain Intel",
+  },
+  {
+    id: "document",
+    label: "Document Verification",
+    icon: FileCheck2,
+    title: "Document Forgery & Tamper Verification",
+    subtitle: "Verify PDFs, digital documents and scans for digital forgery, font changes & metadata tampering",
+    tag: "OCR Forensics",
+  },
 ];
 
 interface VerificationSectionProps {
@@ -30,62 +87,174 @@ export const VerificationSection = ({ initialMode }: VerificationSectionProps) =
   const { activeModule, setActiveModule } = useAnalysis();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Sync initialMode if provided on first render
-  useState(() => {
+  // Sync initialMode if provided on mount
+  useEffect(() => {
     if (initialMode && NAV.some((n) => n.id === initialMode)) {
-      setActiveModule(initialMode as AnalysisMode);
+      setActiveModule(initialMode);
     }
-  });
+  }, [initialMode, setActiveModule]);
 
   const active = activeModule;
   const current = NAV.find((n) => n.id === active) || NAV[0];
 
   return (
-    <section id="verify" className="py-12 px-4">
-      <div className="container mx-auto max-w-7xl">
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Mobile top bar */}
-          <div className="lg:hidden flex items-center justify-between glass-panel p-3 rounded-xl">
-            <div className="flex items-center gap-2">
-              <current.icon className="w-5 h-5 text-primary" />
-              <span className="font-semibold">{current.label} Analysis</span>
+    <section id="verify" className="py-2 sm:py-4 px-1 sm:px-4">
+      <div className="container mx-auto max-w-7xl space-y-6">
+        {/* Horizontal Bubble Navigation for Desktop & Scrollable Segmented for Mobile */}
+        <div className="w-full flex justify-center">
+          <nav
+            aria-label="Forensic Modality Selector"
+            className="w-full sm:w-auto p-1.5 rounded-2xl glass-panel bg-card/70 border border-white/10 dark:border-white/[0.08] shadow-lg overflow-x-auto scrollbar-none"
+          >
+            <div className="flex items-center gap-1 sm:gap-1.5 min-w-max">
+              {NAV.map((item) => {
+                const Icon = item.icon;
+                const isActive = active === item.id;
+
+                return (
+                  <button
+                    key={`h-bubble-${item.id}`}
+                    onClick={() => setActiveModule(item.id)}
+                    aria-label={`Switch to ${item.label}`}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "relative px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors duration-200 flex items-center gap-2 select-none outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                      isActive
+                        ? "text-foreground font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {/* Smooth Luminous Gliding Bubble Pill */}
+                    {isActive && (
+                      <motion.div
+                        layoutId="activeHorizontalBubble"
+                        className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary/20 via-indigo-500/20 to-primary/15 border border-primary/45 shadow-[0_0_22px_rgba(99,102,241,0.28)]"
+                        transition={{
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 32,
+                        }}
+                      />
+                    )}
+                    <span className="relative z-10 flex items-center gap-2">
+                      <Icon
+                        className={cn(
+                          "w-4 h-4 transition-colors duration-150",
+                          isActive ? "text-primary" : "text-muted-foreground"
+                        )}
+                      />
+                      <span className="hidden md:inline">{item.label}</span>
+                      <span className="md:hidden">{item.label.split(" ")[0]}</span>
+                    </span>
+                    <span
+                      className={cn(
+                        "relative z-10 text-[9px] font-mono px-1.5 py-0.5 rounded transition-colors hidden lg:inline",
+                        isActive
+                          ? "bg-primary/20 text-primary border border-primary/30"
+                          : "bg-muted/40 text-muted-foreground/80"
+                      )}
+                    >
+                      {item.tag.split(" ")[0]}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <Button variant="ghost" size="icon" aria-label="Toggle analysis modules menu" onClick={() => setMobileOpen((v) => !v)}>
-              <Menu className="w-5 h-5" />
+          </nav>
+        </div>
+
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Mobile top bar toggle */}
+          <div className="lg:hidden flex items-center justify-between glass-panel p-3.5 rounded-2xl border border-white/10 dark:border-white/[0.08]">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-primary/15 text-primary">
+                <current.icon className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="font-semibold text-sm">{current.label}</span>
+                <span className="text-[10px] block font-mono text-muted-foreground uppercase">{current.tag}</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Toggle analysis modules menu"
+              onClick={() => setMobileOpen((v) => !v)}
+              className="glass-panel text-xs gap-1.5"
+            >
+              {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+              {mobileOpen ? "Close" : "Modalities"}
             </Button>
           </div>
 
-          {/* Sidebar */}
+          {/* Sidebar Navigation */}
           <aside
             className={cn(
               "lg:w-64 lg:shrink-0",
               mobileOpen ? "block" : "hidden lg:block"
             )}
           >
-            <div className="glass-panel rounded-2xl p-3 sticky top-20">
-              <div className="px-3 pt-2 pb-3">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">Verifact</div>
-                <div className="font-semibold">Analysis modules</div>
+            <div className="glass-panel rounded-2xl p-3 sticky top-24 space-y-3 border border-white/10 dark:border-white/[0.08] shadow-md">
+              <div className="px-3 pt-2">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+                  Forensic Modalities
+                </div>
+                <div className="font-bold text-sm text-foreground">Analysis Workbench</div>
               </div>
-              <nav className="flex flex-col gap-1">
+
+              <nav className="flex flex-col gap-1.5 relative">
                 {NAV.map((item) => {
                   const Icon = item.icon;
                   const isActive = active === item.id;
+
                   return (
                     <button
-                      key={item.id}
-                      onClick={() => { setActiveModule(item.id); setMobileOpen(false); }}
+                      key={`side-${item.id}`}
+                      onClick={() => {
+                        setActiveModule(item.id);
+                        setMobileOpen(false);
+                      }}
                       aria-label={`Open ${item.title}`}
                       aria-current={isActive ? "page" : undefined}
                       className={cn(
-                        "group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all",
+                        "relative group flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-colors duration-150 select-none outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                         isActive
-                          ? "bg-gradient-primary text-primary-foreground shadow-md"
-                          : "hover:bg-muted/50 text-foreground"
+                          ? "text-foreground font-semibold"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
                       )}
                     >
-                      <Icon className={cn("w-4 h-4", isActive ? "text-primary-foreground" : "text-primary")} />
-                      <span className="font-medium">{item.label}</span>
+                      {/* Shared Gliding Spring Pill for Sidebar */}
+                      {isActive && (
+                        <motion.div
+                          layoutId="activeSidebarBubble"
+                          className="absolute inset-0 rounded-xl bg-gradient-to-r from-primary/18 via-indigo-500/15 to-primary/12 border border-primary/40 shadow-[0_0_18px_rgba(99,102,241,0.22)]"
+                          transition={{
+                            type: "spring",
+                            stiffness: 420,
+                            damping: 32,
+                          }}
+                        />
+                      )}
+
+                      <div className="relative z-10 flex items-center gap-2.5">
+                        <Icon
+                          className={cn(
+                            "w-4 h-4 transition-colors",
+                            isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                          )}
+                        />
+                        <span>{item.label}</span>
+                      </div>
+                      <span
+                        className={cn(
+                          "relative z-10 text-[9px] font-mono px-1.5 py-0.5 rounded transition-colors",
+                          isActive
+                            ? "bg-primary/20 text-primary border border-primary/30"
+                            : "text-muted-foreground/70"
+                        )}
+                      >
+                        {item.tag.split(" ")[0]}
+                      </span>
                     </button>
                   );
                 })}
@@ -93,34 +262,44 @@ export const VerificationSection = ({ initialMode }: VerificationSectionProps) =
             </div>
           </aside>
 
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="mb-6">
-              <h2 className="text-3xl font-bold">{current.title}</h2>
-              <p className="text-muted-foreground mt-1">{current.subtitle}</p>
+          {/* Workbench Main Content */}
+          <div className="flex-1 min-w-0 space-y-6">
+            {/* Header info badge */}
+            <div className="glass-panel p-5 sm:p-6 rounded-2xl border border-white/10 dark:border-white/[0.08] shadow-sm">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/30 text-[10px] font-mono font-semibold uppercase tracking-wider mb-2">
+                    {current.tag} Mode
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+                    {current.title}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1 max-w-3xl leading-relaxed">
+                    {current.subtitle}
+                  </p>
+                </div>
+              </div>
             </div>
 
+            {/* Preserved Analysis Views (Mounted so input, progress & state are retained) */}
             <div className="relative">
-              <div className={active === "text" ? "block" : "hidden"}>
-                <TextVerification />
-              </div>
-              <div className={active === "image" ? "block" : "hidden"}>
+              <div className={active === "image" ? "block animate-glass-fade" : "hidden"}>
                 <ImageVerification />
               </div>
-              <div className={active === "video" ? "block" : "hidden"}>
+              <div className={active === "text" ? "block animate-glass-fade" : "hidden"}>
+                <TextVerification />
+              </div>
+              <div className={active === "video" ? "block animate-glass-fade" : "hidden"}>
                 <VideoVerification />
               </div>
-              <div className={active === "audio" ? "block" : "hidden"}>
+              <div className={active === "audio" ? "block animate-glass-fade" : "hidden"}>
                 <AudioVerification />
               </div>
-              <div className={active === "url" ? "block" : "hidden"}>
+              <div className={active === "url" ? "block animate-glass-fade" : "hidden"}>
                 <UrlVerification />
               </div>
-              <div className={active === "document" ? "block" : "hidden"}>
+              <div className={active === "document" ? "block animate-glass-fade" : "hidden"}>
                 <DocumentVerification />
-              </div>
-              <div className={active === "qr" ? "block" : "hidden"}>
-                <QrVerification />
               </div>
             </div>
           </div>

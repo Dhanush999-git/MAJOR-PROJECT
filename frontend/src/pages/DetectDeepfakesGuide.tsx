@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { AppHeader } from "@/components/AppHeader";
+import { AppFooter } from "@/components/AppFooter";
 import { BackToTop } from "@/components/BackToTop";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -98,7 +99,7 @@ const Step = ({
 
 const DetectDeepfakesGuide = () => {
   return (
-    <div className="min-h-screen bg-gradient-hero">
+    <div className="min-h-screen flex flex-col bg-gradient-hero">
       <Seo
         title="How to Detect Deepfakes — Forensic AI Analysis Guide | VeriFact"
         description="Learn how to detect deepfakes with forensic AI analysis. Spot EXIF anomalies, lighting inconsistencies, AI artifacts, voice cloning and video manipulation in 6 practical steps."
@@ -266,6 +267,7 @@ const DetectDeepfakesGuide = () => {
           </Button>
         </section>
       </main>
+      <AppFooter />
       <BackToTop />
     </div>
   );

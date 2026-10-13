@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import type { SpeedMetrics } from "@/lib/analysisTypes";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 interface ForensicScores {
   syntheticSpeech: number;
@@ -94,7 +95,7 @@ async function fileToBase64(file: File): Promise<string> {
 import { useAnalysis } from "@/contexts/AnalysisContext";
 
 export const AudioVerification = () => {
-  const { audioState, runAudioAnalysis } = useAnalysis();
+  const { audioState, runAudioAnalysis, clearAnalysis } = useAnalysis();
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -139,34 +140,36 @@ export const AudioVerification = () => {
   return (
     <div className="space-y-6">
       {/* Upload */}
-      <Card className="glass-panel p-6">
+      <Card className="glass-panel p-6 border-border/50">
         <div
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0] ?? null); }}
-          className="border-2 border-dashed border-border/60 hover:border-primary/60 rounded-xl p-10 text-center cursor-pointer transition-all"
+          className="border-2 border-dashed border-border/60 hover:border-primary/60 rounded-2xl p-8 text-center cursor-pointer transition-all glass-panel"
         >
           <input
             ref={inputRef} type="file" accept="audio/*" className="hidden"
             onChange={(e) => onFile(e.target.files?.[0] ?? null)}
           />
           <div className="flex flex-col items-center gap-3">
-            <div className="p-4 rounded-2xl bg-gradient-primary glass-glow">
-              <FileAudio className="w-10 h-10 text-primary-foreground" />
+            <div className="p-4 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <FileAudio className="w-8 h-8" />
             </div>
-            <p className="font-medium">
-              {file ? file.name : "Drop audio here or click to upload"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              MP3, WAV, M4A, OGG, FLAC · max 25MB
-            </p>
+            <div>
+              <p className="font-semibold text-sm text-foreground">
+                {file ? file.name : "Drop audio file here or click to browse"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                MP3, WAV, M4A, OGG, FLAC · Max 25MB · Spectral discontinuity & voice cloning analysis
+              </p>
+            </div>
           </div>
         </div>
 
         {audioUrl && (
-          <div className="mt-4 flex items-center gap-3 glass-panel p-3 rounded-lg">
-            <Button size="icon" variant="ghost" onClick={togglePlay}>
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+          <div className="mt-4 flex items-center gap-3 glass-panel p-3 rounded-xl border border-border/40">
+            <Button size="icon" variant="ghost" onClick={togglePlay} className="h-9 w-9 rounded-lg">
+              {isPlaying ? <Pause className="w-4 h-4 text-primary" /> : <Play className="w-4 h-4 text-primary" />}
             </Button>
             <audio
               ref={audioRef} src={audioUrl} className="flex-1"
@@ -177,15 +180,66 @@ export const AudioVerification = () => {
 
         <Button
           onClick={analyze} disabled={!file || isAnalyzing}
-          className="w-full mt-4 bg-gradient-primary"
+          className="w-full mt-4 btn-tactile bg-primary text-primary-foreground font-semibold text-xs py-2.5 rounded-xl"
         >
           {isAnalyzing ? (
-            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running 6-layer forensic analysis…</>
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running voice forensic analysis…</>
           ) : (
-            <><Waves className="w-4 h-4 mr-2" /> Analyze audio</>
+            <><Waves className="w-4 h-4 mr-2" /> Analyze Audio Forensics</>
           )}
         </Button>
       </Card>
+
+      {audioState.error && !isAnalyzing && (
+        <ForensicErrorNotice
+          title="Audio Verification Notice"
+          message={audioState.error}
+          onRetry={analyze}
+          onDismiss={() => {
+            clearAnalysis("audio");
+            setFile(null);
+            setAudioUrl(null);
+          }}
+        />
+      )}
+
+      {/* Purposeful Acoustic Scanning State */}
+      <AnimatePresence>
+        {isAnalyzing && (
+          <motion.div
+            key="audio-loader"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <Card className="glass-panel p-6 text-center space-y-4 border-amber-500/30 shadow-lg shadow-amber-500/10">
+              <div className="flex justify-center items-end gap-1.5 h-12 py-1">
+                {[35, 65, 90, 45, 75, 30, 85, 55, 70, 40, 80, 50, 60].map((h, i) => (
+                  <motion.div
+                    key={i}
+                    className="w-1.5 bg-gradient-to-t from-primary to-amber-400 rounded-full"
+                    animate={{ height: [`${h * 0.3}%`, `${h}%`, `${h * 0.4}%`] }}
+                    transition={{ duration: 0.8 + (i % 4) * 0.2, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                ))}
+              </div>
+              <div>
+                <h3 className="text-base font-bold tracking-tight">Acoustic & Spectrogram Analysis Active</h3>
+                <p className="text-xs text-primary font-mono mt-1 font-medium">
+                  {audioState.statusText || "Auditing speech synthesis, Wav2Vec2 features & spectrogram anomalies..."}
+                </p>
+              </div>
+              <div className="max-w-md mx-auto space-y-1.5">
+                <Progress value={audioState.progress} className="h-2 glass-panel" />
+                <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+                  <span>Spectral Pass</span>
+                  <span>{audioState.progress}%</span>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Result */}
       <AnimatePresence mode="wait">

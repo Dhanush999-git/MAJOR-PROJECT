@@ -8,6 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { AnalysisProgress } from "./AnalysisProgress";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 interface PropagandaTechnique { name: string; confidence: number; example: string }
 interface ManipulationTactic { tactic: string; severity: "low" | "medium" | "high" }
@@ -70,15 +72,17 @@ const BIAS_COLORS: Record<string, string> = {
 import { useAnalysis } from "@/contexts/AnalysisContext";
 
 export const TextVerification = () => {
-  const { textState, runTextAnalysis } = useAnalysis();
+  const { textState, runTextAnalysis, clearAnalysis } = useAnalysis();
   const [text, setText] = useState(textState.input || "");
 
   const isAnalyzing = textState.isAnalyzing;
   const result = textState.result;
 
+  const [truthAnalysisEnabled, setTruthAnalysisEnabled] = useState(true);
+
   const analyzeText = () => {
     if (!text.trim()) { toast.error("Please enter some text to analyze"); return; }
-    runTextAnalysis(text);
+    runTextAnalysis(text, { enableTruthAnalysis: truthAnalysisEnabled });
   };
 
   const icon = (cat: string) => cat === "authentic" ? <ShieldCheck className="w-6 h-6 text-success" /> : cat === "suspicious" ? <AlertTriangle className="w-6 h-6 text-warning" /> : <ShieldAlert className="w-6 h-6 text-destructive" />;
@@ -121,30 +125,102 @@ export const TextVerification = () => {
 
   return (
     <div className="space-y-6">
-      <Card className="glass-panel p-6 animate-glass-fade">
+      <Card className="glass-panel p-6 animate-glass-fade border-border/50">
         <div className="space-y-4">
-          <Textarea placeholder="Paste the text you want to verify…" value={text} onChange={(e) => setText(e.target.value)} className="min-h-[200px] resize-none glass-panel" />
-          <Button onClick={analyzeText} disabled={isAnalyzing} className="w-full bg-gradient-primary animate-lift" size="lg">
-            {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analyzing…</> : "Verify Text"}
+          <div className="relative">
+            <Textarea
+              placeholder="Paste article, news excerpt, social media claim, or statement to verify against global news wires..."
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="min-h-[190px] resize-none glass-panel text-sm leading-relaxed rounded-xl border-border/60 focus:border-primary/50"
+            />
+            <div className="absolute right-3 bottom-3 text-[11px] font-mono text-muted-foreground/70">
+              {text.length} characters
+            </div>
+          </div>
+          {/* Optional Truth Analysis Toggle */}
+          <div className="flex items-center justify-between p-3 px-4 rounded-xl glass-panel bg-card/60 dark:bg-card/40 border border-white/10 dark:border-white/[0.08] shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-primary/15 text-primary">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-semibold text-xs text-foreground block">
+                  Truth Analysis & Live Wire Fact-Checking (Optional)
+                </span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {truthAnalysisEnabled
+                    ? "Deep multi-layer claim extraction & live wire corroboration active"
+                    : "Rapid linguistic & AI manipulation heuristics only (fast mode)"}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={truthAnalysisEnabled}
+              onClick={() => setTruthAnalysisEnabled((prev) => !prev)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                truthAnalysisEnabled ? "bg-primary" : "bg-muted border border-border/60"
+              )}
+            >
+              <span
+                className={cn(
+                  "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out my-auto",
+                  truthAnalysisEnabled ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+          </div>
+
+          <Button
+            onClick={analyzeText}
+            disabled={isAnalyzing}
+            className="w-full btn-tactile bg-primary text-primary-foreground font-semibold text-xs py-2.5 rounded-xl"
+            size="lg"
+          >
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {truthAnalysisEnabled ? "Running fact-check & claim extraction…" : "Running rapid heuristic scan…"}
+              </>
+            ) : truthAnalysisEnabled ? (
+              "Verify News & Deep Truth Claims"
+            ) : (
+              "Run Rapid Heuristic Analysis"
+            )}
           </Button>
         </div>
       </Card>
 
       {isAnalyzing && (
-        <Card className="glass-panel p-6 animate-glass-ripple space-y-4">
-          <div className="text-center space-y-2">
-            <div className="text-xl font-semibold">{textState.statusText || "Analyzing text..."}</div>
-            <p className="text-sm text-muted-foreground">Cross-checking web evidence & fact-checkers</p>
+        <Card className="glass-panel p-6 text-center space-y-4 border-violet-500/30 shadow-lg shadow-violet-500/10">
+          <div className="space-y-2">
+            <div className="h-10 w-10 mx-auto rounded-xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center text-violet-400">
+              <Brain className="h-5 w-5 animate-pulse" />
+            </div>
+            <h3 className="text-base font-bold tracking-tight">Cross-Referencing Claims & Sources</h3>
+            <p className="text-xs text-primary font-mono font-medium">{textState.statusText || "Extracting factual claims..."}</p>
           </div>
-          <Progress value={textState.progress} className="h-3 glass-panel" />
-          <div className="text-center text-xs font-medium">{textState.progress}%</div>
+          <div className="max-w-md mx-auto space-y-1.5">
+            <Progress value={textState.progress} className="h-2 glass-panel" />
+            <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+              <span>Evidence Pipeline</span>
+              <span>{textState.progress}%</span>
+            </div>
+          </div>
         </Card>
       )}
 
       {textState.error && !isAnalyzing && (
-        <Card className="glass-panel p-4 border-destructive/40 text-destructive">
-          {textState.error}
-        </Card>
+        <ForensicErrorNotice
+          title="Text Verification Notice"
+          message={textState.error}
+          onRetry={analyzeText}
+          onDismiss={() => clearAnalysis("text")}
+        />
       )}
 
       <AnimatePresence>

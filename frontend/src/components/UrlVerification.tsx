@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { AnalysisProgress } from "./AnalysisProgress";
 import { motion, AnimatePresence } from "framer-motion";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 interface RiskFlag { flag: string; severity: "low" | "medium" | "high" | "critical" }
 interface UrlResult {
@@ -35,7 +36,7 @@ const FLAG_CLS: Record<string, string> = {
 import { useAnalysis } from "@/contexts/AnalysisContext";
 
 export const UrlVerification = () => {
-  const { urlState, runUrlAnalysis } = useAnalysis();
+  const { urlState, runUrlAnalysis, clearAnalysis } = useAnalysis();
   const [url, setUrl] = useState(urlState.input || "");
   const { user } = useAuth();
   const { saveScan } = useScans();
@@ -70,26 +71,52 @@ export const UrlVerification = () => {
 
   return (
     <div className="space-y-6">
-      <Card className="glass-panel p-6 animate-glass-fade">
+      <Card className="glass-panel p-6 animate-glass-fade border-border/50">
         <div className="space-y-4">
           <div className="relative">
-            <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input type="url" placeholder="https://example.com/article" value={url} onChange={(e) => setUrl(e.target.value)} className="pl-10 glass-panel" />
+            <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
+            <Input
+              type="url"
+              placeholder="https://example.com/breaking-news-article"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="pl-10 glass-panel rounded-xl text-sm border-border/60 focus:border-primary/50"
+            />
           </div>
-          <Button onClick={analyzeUrl} disabled={isAnalyzing} className="w-full bg-gradient-primary animate-lift" size="lg">
-            {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Analyzing…</> : "Verify URL"}
+          <Button onClick={analyzeUrl} disabled={isAnalyzing} className="w-full btn-tactile bg-primary text-primary-foreground font-semibold text-xs py-2.5 rounded-xl" size="lg">
+            {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Auditing domain security & credibility…</> : "Audit URL Authenticity"}
           </Button>
         </div>
       </Card>
 
+      {urlState.error && !isAnalyzing && (
+        <ForensicErrorNotice
+          title="URL Verification Notice"
+          message={urlState.error}
+          onRetry={analyzeUrl}
+          onDismiss={() => {
+            clearAnalysis("url");
+            setUrl("");
+          }}
+        />
+      )}
+
       {isAnalyzing && (
-        <Card className="glass-panel p-6 animate-glass-ripple space-y-4">
-          <div className="text-center space-y-2">
-            <div className="text-xl font-semibold">{urlState.statusText || "Analyzing URL..."}</div>
-            <p className="text-sm text-muted-foreground">Checking domain WHOIS, SSL & Safe Browsing database</p>
+        <Card className="glass-panel p-6 text-center space-y-4 border-emerald-500/30 shadow-lg shadow-emerald-500/10">
+          <div className="space-y-2">
+            <div className="h-10 w-10 mx-auto rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Lock className="h-5 w-5 animate-pulse" />
+            </div>
+            <h3 className="text-base font-bold tracking-tight">Security & Credibility Audit Active</h3>
+            <p className="text-xs text-primary font-mono font-medium">{urlState.statusText || "Checking domain WHOIS, SSL & Safe Browsing..."}</p>
           </div>
-          <Progress value={urlState.progress} className="h-3 glass-panel" />
-          <div className="text-center text-xs font-medium">{urlState.progress}%</div>
+          <div className="max-w-md mx-auto space-y-1.5">
+            <Progress value={urlState.progress} className="h-2 glass-panel" />
+            <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+              <span>Security Threat Inspection</span>
+              <span>{urlState.progress}%</span>
+            </div>
+          </div>
         </Card>
       )}
 
