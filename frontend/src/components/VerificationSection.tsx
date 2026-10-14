@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FileText, Image as ImageIcon, Video as VideoIcon, Mic, Link2, Menu, FileCheck2, QrCode, type LucideIcon } from "lucide-react";
 import { TextVerification } from "./TextVerification";
@@ -30,12 +30,12 @@ export const VerificationSection = ({ initialMode }: VerificationSectionProps) =
   const { activeModule, setActiveModule } = useAnalysis();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Sync initialMode if provided on first render
-  useState(() => {
-    if (initialMode && NAV.some((n) => n.id === initialMode)) {
-      setActiveModule(initialMode as AnalysisMode);
-    }
-  });
+ // Sync initialMode after render
+useEffect(() => {
+  if (initialMode && NAV.some((n) => n.id === initialMode)) {
+    setActiveModule(initialMode);
+  }
+}, [initialMode, setActiveModule]);
 
   const active = activeModule;
   const current = NAV.find((n) => n.id === active) || NAV[0];

@@ -15,6 +15,7 @@ import { analyzeVideoAudio, type VideoAudioSignals } from "@/lib/videoAudioSigna
 import { generateForensicReport } from "@/lib/forensicReport";
 import { useAnalysis } from "@/contexts/AnalysisContext";
 import type { SpeedMetrics } from "@/lib/analysisTypes";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 /* ── Types ─────────────────────────────────── */
 interface DetectionScores {
@@ -138,7 +139,7 @@ export const VideoVerification = () => {
   const loaderProgress = videoState.progress;
   const result = videoState.result as VideoResult | null;
 
-  const runAnalysis = async (file: File, src: string) => {
+  const runAnalysis = useCallback(async (file: File, src: string) => {
     setLocalVideo(src);
     setLoaderStage("Sampling frames…");
     const frames = await captureFrames(src, 5, 640);
@@ -147,7 +148,7 @@ export const VideoVerification = () => {
     const dur = videoRef.current?.duration || frames[frames.length - 1]?.timestamp || 0;
     setDuration(dur);
     runVideoAnalysis({ frames, audio, durationSec: dur, src });
-  };
+  }, [runVideoAnalysis]);
 
   const handleVideoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -162,7 +163,7 @@ export const VideoVerification = () => {
       runAnalysis(file, src);
     };
     reader.readAsDataURL(file);
-  }, [user]);
+  }, [runAnalysis]);
 
   /* ── Share / PDF ───────────────────────────── */
   const buildScanForReport = (): Scan | null => {
@@ -225,50 +226,53 @@ export const VideoVerification = () => {
           >
             {selectedVideo ? (
               <div className="space-y-4">
-                <div className="relative inline-block w-full">
+                <div className={`relative inline-block w-full rounded-xl overflow-hidden transition-all ${isAnalyzing ? "ring-2 ring-primary/60 shadow-lg shadow-primary/20" : ""}`}>
                   <video
                     ref={videoRef}
                     src={selectedVideo}
                     controls
-                    className="max-h-96 mx-auto rounded-lg w-full object-contain bg-black"
+                    className="max-h-96 mx-auto rounded-xl w-full object-contain bg-black"
                   />
                   {isAnalyzing && (
-                    <motion.div
-                      className="absolute inset-x-0 h-12 pointer-events-none rounded-lg"
-                      style={{ background: "linear-gradient(180deg, transparent, hsl(var(--primary)/0.45), transparent)" }}
-                      initial={{ top: "-10%" }}
-                      animate={{ top: ["-10%", "100%"] }}
-                      transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                    />
+                    <>
+                      <div className="scan-beam" />
+                      <div className="absolute inset-0 scan-grid-overlay pointer-events-none opacity-60" />
+                      <div className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-background/80 backdrop-blur-md border border-primary/40 text-[10px] font-mono font-semibold text-primary flex items-center gap-1.5 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                        TEMPORAL FRAME SAMPLING (5 FRAMES)
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="flex gap-2 justify-center flex-wrap">
                   <Button
                     variant="outline"
-                    className="glass-panel"
+                    className="glass-panel text-xs"
                     onClick={(e) => {
                       e.stopPropagation();
                       clearAnalysis("video"); setLocalVideo(null); setVideoFile(null); setAudioSignals(null);
                     }}
                   >
-                    Remove
+                    Remove Video
                   </Button>
                   <Button
-                    className="bg-gradient-primary"
+                    className="btn-tactile bg-primary text-primary-foreground font-semibold text-xs"
                     disabled={isAnalyzing || !videoFile}
                     onClick={(e) => { e.stopPropagation(); if (videoFile && selectedVideo) runAnalysis(videoFile, selectedVideo); }}
                   >
-                    {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Re-scanning</> : <><Sparkles className="mr-2 h-4 w-4" />Re-scan</>}
+                    {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scanning…</> : <><Sparkles className="mr-2 h-4 w-4" />Re-scan Video</>}
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 py-6">
-                <Upload className="h-12 w-12 mx-auto text-muted-foreground" />
+              <div className="space-y-4 py-8">
+                <div className="p-4 rounded-2xl bg-primary/10 text-primary w-fit mx-auto border border-primary/20">
+                  <Upload className="h-8 w-8" />
+                </div>
                 <div>
-                  <p className="text-sm font-medium">Drop or click to upload</p>
+                  <p className="text-sm font-semibold text-foreground">Drag and drop video here or click to browse</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    MP4, MOV, WEBM — full forensic + voice authenticity scan
+                    MP4, MOV, or WEBM · Temporal frame audit, facial expression consistency & audio synchronization
                   </p>
                 </div>
               </div>
@@ -284,30 +288,45 @@ export const VideoVerification = () => {
         </div>
       </Card>
 
-      {/* ── Premium Loading State ──────────────── */}
+      {videoState.error && !isAnalyzing && (
+        <ForensicErrorNotice
+          title="Video Verification Notice"
+          message={videoState.error}
+          onRetry={() => {
+            if (videoFile && selectedVideo) runAnalysis(videoFile, selectedVideo);
+          }}
+          onDismiss={() => {
+            clearAnalysis("video");
+            setLocalVideo(null);
+            setVideoFile(null);
+            setAudioSignals(null);
+          }}
+        />
+      )}
+
+      {/* ── Purposeful Video Loading State ──────────────── */}
       <AnimatePresence>
         {isAnalyzing && (
           <motion.div key="loader" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Card className="glass-panel p-8 text-center space-y-4 overflow-hidden relative">
-              <motion.div
-                className="absolute inset-0 opacity-30 pointer-events-none"
-                style={{ background: "radial-gradient(60% 50% at 50% 50%, hsl(var(--primary)/0.35), transparent)" }}
-                animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}
-              />
+            <Card className="glass-panel p-6 text-center space-y-4 overflow-hidden relative border-primary/30 shadow-lg shadow-primary/10">
               <div className="relative space-y-3">
                 <div className="flex items-center justify-center">
-                  <motion.div
-                    className="h-14 w-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl"
-                    animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  >
-                    <ScanLine className="h-7 w-7 text-primary-foreground" />
-                  </motion.div>
+                  <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shadow-inner">
+                    <ScanLine className="h-6 w-6 animate-pulse" />
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold tracking-tight">Forensic video scan in progress</h3>
-                <p className="text-xs text-muted-foreground">{loaderStage}</p>
-                <div className="max-w-md mx-auto">
-                  <Progress value={loaderProgress} className="h-2" />
-                  <p className="text-[11px] text-muted-foreground mt-2">{loaderProgress}%</p>
+                <div>
+                  <h3 className="text-base font-bold tracking-tight">Temporal Video & Deepfake Inspection Active</h3>
+                  <p className="text-xs text-primary font-mono mt-1 font-medium">
+                    {videoState.statusText || loaderStage || "Sampling frames & extracting audio signals..."}
+                  </p>
+                </div>
+                <div className="max-w-md mx-auto space-y-1.5">
+                  <Progress value={loaderProgress} className="h-2 glass-panel" />
+                  <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+                    <span>Analysis Progress</span>
+                    <span>{loaderProgress}%</span>
+                  </div>
                 </div>
               </div>
             </Card>

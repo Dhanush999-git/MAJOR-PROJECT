@@ -15,6 +15,7 @@ import exifr from "exifr";
 import { analyzeImageForensics, type ForensicBundle } from "@/lib/forensicSignals";
 import { generateForensicReport } from "@/lib/forensicReport";
 import type { SpeedMetrics } from "@/lib/analysisTypes";
+import { ForensicErrorNotice } from "@/components/ui/ForensicErrorNotice";
 
 /* ── Types ─────────────────────────────────── */
 interface DetectedEffect { name: string; confidence: number; severity?: "subtle" | "moderate" | "strong"; }
@@ -148,7 +149,7 @@ useEffect(() => {
     setForensics(null);
     clearAnalysis("image");
   };
-}, []);
+}, [clearAnalysis]);
   const [showRegions, setShowRegions] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -325,8 +326,8 @@ useEffect(() => {
           >
             {selectedImage ? (
               <div className="space-y-4">
-                <div className="relative inline-block">
-                  <img ref={imgRef} src={selectedImage} alt="Selected for analysis" className="max-h-96 mx-auto rounded-lg object-contain" />
+                <div className={`relative inline-block rounded-xl overflow-hidden transition-all ${isAnalyzing ? "ring-2 ring-primary/60 shadow-lg shadow-primary/20" : ""}`}>
+                  <img ref={imgRef} src={selectedImage} alt="Selected for analysis" className="max-h-96 mx-auto rounded-xl object-contain" />
 
                   {/* Region overlays */}
                   {showRegions && regions.length > 0 && (
@@ -349,15 +350,16 @@ useEffect(() => {
                     </svg>
                   )}
 
-                  {/* Scan-line animation while analyzing */}
+                  {/* Luminous Forensic Scan Beam & Grid */}
                   {isAnalyzing && (
-                    <motion.div
-                      className="absolute inset-x-0 h-12 pointer-events-none rounded-lg"
-                      style={{ background: "linear-gradient(180deg, transparent, hsl(var(--primary)/0.45), transparent)" }}
-                      initial={{ top: "-10%" }}
-                      animate={{ top: ["-10%", "100%"] }}
-                      transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                    />
+                    <>
+                      <div className="scan-beam" />
+                      <div className="absolute inset-0 scan-grid-overlay pointer-events-none opacity-60" />
+                      <div className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-background/80 backdrop-blur-md border border-primary/40 text-[10px] font-mono font-semibold text-primary flex items-center gap-1.5 shadow-sm">
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                        ACTIVE SCAN
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -367,19 +369,23 @@ useEffect(() => {
                       {showRegions ? <><EyeOff className="mr-1 h-3 w-3" />Hide regions</> : <><Eye className="mr-1 h-3 w-3" />Show regions</>}
                     </Button>
                   )}
-                  <Button variant="outline" className="glass-panel" onClick={(e) => { e.stopPropagation(); clearAnalysis("image"); setLocalSelectedImage(null); setExifData(null); setCompression(null); setForensics(null); }}>
+                  <Button variant="outline" className="glass-panel text-xs" onClick={(e) => { e.stopPropagation(); clearAnalysis("image"); setLocalSelectedImage(null); setExifData(null); setCompression(null); setForensics(null); }}>
                     Remove
                   </Button>
-                  <Button className="bg-gradient-primary" disabled={isAnalyzing} onClick={(e) => { e.stopPropagation(); if (selectedImage) runAnalysis(selectedImage, undefined, forensics); }}>
-                    {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Re-scanning</> : <><Sparkles className="mr-2 h-4 w-4" />Re-scan</>}
+                  <Button className="btn-tactile bg-primary text-primary-foreground font-semibold text-xs" disabled={isAnalyzing} onClick={(e) => { e.stopPropagation(); if (selectedImage) runAnalysis(selectedImage, undefined, forensics); }}>
+                    {isAnalyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Scanning…</> : <><Sparkles className="mr-2 h-4 w-4" />Re-scan Image</>}
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4 py-6">
-                <Upload className="h-12 w-12 mx-auto text-muted-foreground" />
-                <p className="text-sm font-medium">Drop or click to upload</p>
-                <p className="text-xs text-muted-foreground">PNG, JPG, WEBP — analysed instantly with premium AI forensics</p>
+              <div className="space-y-4 py-8">
+                <div className="p-4 rounded-2xl bg-primary/10 text-primary w-fit mx-auto border border-primary/20">
+                  <Upload className="h-8 w-8" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Drag and drop image here or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, or WEBP · Analyzed with multi-layer vision AI & PRNU/FFT algorithms</p>
+                </div>
               </div>
             )}
             <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImageUpload} className="hidden" />
@@ -388,38 +394,48 @@ useEffect(() => {
       </Card>
 
       {imageState.error && !isAnalyzing && (
-        <Card className="glass-panel p-4 border-destructive/40 text-destructive">
-          {imageState.error}
-        </Card>
+        <ForensicErrorNotice
+          title="Image Verification Notice"
+          message={imageState.error}
+          onRetry={() => {
+            if (selectedImage) runAnalysis(selectedImage, { exif: exifData || undefined, compression: compression || undefined }, forensics);
+          }}
+          onDismiss={() => {
+            clearAnalysis("image");
+            setLocalSelectedImage(null);
+            setExifData(null);
+            setCompression(null);
+            setForensics(null);
+          }}
+        />
       )}
 
-      {/* ── Premium Loading State ──────────────── */}
+      {/* ── Purposeful Forensic Loading State ──────────────── */}
       <AnimatePresence>
         {isAnalyzing && (
           <motion.div
             key="loader"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
           >
-            <Card className="glass-panel p-8 text-center space-y-4 overflow-hidden relative">
-              <motion.div
-                className="absolute inset-0 opacity-30 pointer-events-none"
-                style={{ background: "radial-gradient(60% 50% at 50% 50%, hsl(var(--primary)/0.35), transparent)" }}
-                animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}
-              />
+            <Card className="glass-panel p-6 text-center space-y-4 overflow-hidden relative border-primary/30 shadow-lg shadow-primary/10">
               <div className="relative space-y-3">
                 <div className="flex items-center justify-center">
-                  <motion.div
-                    className="h-14 w-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-2xl"
-                    animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  >
-                    <ScanLine className="h-7 w-7 text-primary-foreground" />
-                  </motion.div>
+                  <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center text-primary shadow-inner">
+                    <ScanLine className="h-6 w-6 animate-pulse" />
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold tracking-tight">Forensic analysis in progress</h3>
-                <p className="text-xs text-muted-foreground">Checking faces, lighting, metadata, and AI patterns…</p>
-                <div className="max-w-md mx-auto">
-                  <Progress value={loaderProgress} className="h-2" />
-                  <p className="text-[11px] text-muted-foreground mt-2">{loaderProgress}%</p>
+                <div>
+                  <h3 className="text-base font-bold tracking-tight">Multi-Layer Image Analysis in Progress</h3>
+                  <p className="text-xs text-primary font-mono mt-1 font-medium">
+                    {imageState.statusText || "Extracting forensic signals and querying deepfake model..."}
+                  </p>
+                </div>
+                <div className="max-w-md mx-auto space-y-1.5">
+                  <Progress value={loaderProgress} className="h-2 glass-panel" />
+                  <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
+                    <span>Stage Progress</span>
+                    <span>{loaderProgress}%</span>
+                  </div>
                 </div>
               </div>
             </Card>

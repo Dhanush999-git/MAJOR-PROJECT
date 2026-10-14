@@ -139,10 +139,10 @@ export function generateForensicReport(scan: Scan) {
   }
 
   // Detection scores
-  const rawScores = details.detectionScores ?? details.scores;
-  const scores: Record<string, unknown> | undefined =
-    rawScores && typeof rawScores === "object" && !Array.isArray(rawScores)
-      ? rawScores as Record<string, unknown>
+  const rawScores = details.detectionScores || details.scores;
+  const scores: Record<string, number> | undefined =
+    rawScores && typeof rawScores === "object"
+      ? (rawScores as Record<string, number>)
       : undefined;
   if (scores && Object.keys(scores).length) {
     y = ensureSpace(doc, y, 12 + Object.keys(scores).length * 9, pageW, pageH);

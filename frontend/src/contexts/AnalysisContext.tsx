@@ -113,7 +113,10 @@ interface AnalysisContextValue {
   urlState: AnalysisState<string>;
   qrState: AnalysisState<string, QrForensicReport>;
 
-  runTextAnalysis: (text: string) => Promise<void>;
+  runTextAnalysis: (
+  text: string,
+  options?: { enableTruthAnalysis?: boolean }
+) => Promise<void>;
   runImageAnalysis: (imageData: string, signals?: ImageAnalysisSignals, forensics?: ForensicBundle | null) => Promise<void>;
   runVideoAnalysis: (body: VideoAnalysisInput) => Promise<void>;
   runAudioAnalysis: (audioBase64: string, mimeType: string, filename: string) => Promise<void>;
@@ -233,7 +236,10 @@ export const AnalysisProvider = ({ children }: { children: ReactNode }) => {
   // 1. Text Analysis
   // 1. Text Analysis
 // 1. Text Analysis
-const runTextAnalysis = async (text: string) => {
+const runTextAnalysis = async (
+  text: string,
+  options?: { enableTruthAnalysis?: boolean }
+) => {
   const startTime = performance.now();
 
   setTextState({
@@ -1240,114 +1246,299 @@ modelUsed:
 
   // 3. Video Analysis
   const runVideoAnalysis = async (body: VideoAnalysisInput) => {
-    const startTime = performance.now();
-    setVideoState({
-      isAnalyzing: true,
-      progress: 5,
-      statusText: "Sampling frames & analyzing video consistency...",
-      input: body,
-      result: null,
-      error: null,
-    });
+  const startTime = performance.now();
 
-    const timer = simulateProgress(setVideoState, ["Extracting video frames...", "Analyzing facial expressions & blinking...", "Checking temporal consistency...", "Fusing visual & audio signals..."], 4000);
+  setVideoState({
+    isAnalyzing: true,
+    progress: 5,
+    statusText: "Uploading video to forensic analysis engine...",
+    input: body,
+    result: null,
+    error: null,
+  });
 
-    try {
-      const { data, error } = await supabase.functions.invoke("verify-video", { body });
-      clearInterval(timer);
-      if (error) throw error;
+  const timer = simulateProgress(
+    setVideoState,
+    [
+      "Uploading video...",
+      "Extracting video frames...",
+      "Running VideoMAE deepfake detection...",
+      "Aggregating forensic evidence...",
+    ],
+    4000
+  );
 
-      const elapsedMs = Math.round(performance.now() - startTime);
-      const frameCount = body?.frames?.length || 5;
-      const speedMetrics = {
-        totalMs: elapsedMs,
-        prepMs: Math.round(elapsedMs * 0.25),
-        forensicMs: Math.round(elapsedMs * 0.35),
-        aiInferenceMs: Math.round(elapsedMs * 0.40),
-        throughputLabel: `${(frameCount / (elapsedMs / 1000 || 1)).toFixed(1)} FPS`,
-      };
-      const enrichedData = { ...data, speedMetrics, executionTimeMs: elapsedMs };
-
-      setVideoState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 100,
-        statusText: "Analysis Complete",
-        result: enrichedData,
-      }));
-
-      saveScanToDb("video", "Video scan", enrichedData.category, enrichedData.confidence, enrichedData);
-      toast.success(`Video Analysis completed in ${elapsedMs}ms!`);
-    } catch (err) {
-      clearInterval(timer);
-      const msg = err instanceof Error ? err.message : "Analysis failed";
-      setVideoState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 0,
-        statusText: "",
-        error: msg,
-        result: { isAuthentic: false, confidence: 0, category: "suspicious", verdict: "Suspicious", analysis: "An error occurred during analysis.", detectionScores: { facialManipulation: 0, lipSync: 0, temporalConsistency: 0, ganArtifacts: 0 } },
-      }));
-      toast.error("Video analysis failed: " + msg);
+  try {
+    /*
+     * The VideoVerification UI keeps the local video source in `body.src`.
+     * Convert that source back into a File so the Node backend can receive
+     * the original video through multipart/form-data.
+     */
+    if (!body?.src) {
+      throw new Error("Video source is missing.");
     }
-  };
+
+    const videoResponse = await fetch(body.src);
+
+    if (!videoResponse.ok) {
+      throw new Error("Unable to read the selected video.");
+    }
+
+    const videoBlob = await videoResponse.blob();
+
+    const filename =
+  `video-${Date.now()}.${videoBlob.type?.split("/")[1] || "mp4"}`;
+
+    const videoFile = new File(
+      [videoBlob],
+      filename,
+      {
+        type: videoBlob.type || "video/mp4",
+      }
+    );
+
+    const formData = new FormData();
+    formData.append("video", videoFile);
+
+    const response = await fetch(
+      "http://127.0.0.1:5000/api/analyze/video",
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    clearInterval(timer);
+
+    if (!response.ok || data?.success !== true) {
+      throw new Error(
+        data?.error || "Video verification failed."
+      );
+    }
+
+    const elapsedMs = Math.round(performance.now() - startTime);
+
+    const frameCount =
+      data?.result?.frames_analyzed ||
+      body?.frames?.length ||
+      16;
+
+    const speedMetrics = {
+      totalMs: elapsedMs,
+      prepMs: Math.round(elapsedMs * 0.25),
+      forensicMs: Math.round(elapsedMs * 0.35),
+      aiInferenceMs: Math.round(elapsedMs * 0.40),
+      throughputLabel: `${(
+        frameCount /
+        (elapsedMs / 1000 || 1)
+      ).toFixed(1)} FPS`,
+    };
+
+    /*
+     * Keep the existing frontend result structure as much as possible,
+     * while adding the real backend verification result.
+     */
+    const backendVerdict = data.result?.verdict || "UNVERIFIED";
+const realProbability = Number(data.result?.real_probability ?? 0);
+const fakeProbability = Number(data.result?.fake_probability ?? 0);
+const confidence = Number(data.result?.confidence ?? 0);
+const riskLevel = data.result?.risk_level || "MEDIUM";
+
+const enrichedData = {
+  ...data.result,
+
+  video: data.video,
+  model: data.model,
+
+  speedMetrics,
+  executionTimeMs: elapsedMs,
+
+  // Adapt backend verdict to the existing Video UI.
+  verdictTag:
+    backendVerdict === "REAL"
+      ? "Original"
+      : backendVerdict === "FAKE"
+        ? "Deepfake Suspected"
+        : "Edited",
+
+  // Existing UI expects an object, not a number.
+  trustScore: {
+    level:
+      riskLevel === "LOW"
+        ? "Low Risk"
+        : riskLevel === "HIGH"
+          ? "High Risk"
+          : "Medium Risk",
+    score: realProbability,
+  },
+
+  // Existing UI expects { label, value }.
+  primaryMetric: {
+    label: "Authenticity Probability",
+    value: realProbability,
+  },
+
+  plainExplanation:
+    backendVerdict === "REAL"
+      ? `The VideoMAE detector estimates ${realProbability.toFixed(2)}% probability that this video is authentic.`
+      : backendVerdict === "FAKE"
+        ? `The VideoMAE detector estimates ${fakeProbability.toFixed(2)}% probability that this video contains synthetic or manipulated content.`
+        : `The VideoMAE detector estimates ${fakeProbability.toFixed(2)}% fake probability and ${realProbability.toFixed(2)}% real probability, so the result requires caution.`,
+
+  // Keep the actual backend probabilities available.
+  // VideoMAE currently returns aggregate real/fake probabilities.
+// It does not provide separate facial, lip-sync, temporal-jump,
+// or GAN-artifact scores, so do not display fabricated values.
+detectionScores: undefined,
+
+  timeline: Array.isArray(data.result?.timestamps)
+    ? data.result.timestamps.map(
+        (timestamp: unknown, index: number) => ({
+          timestamp: Number(timestamp) || 0,
+          type: "visual" as const,
+          severity:
+            backendVerdict === "FAKE"
+              ? "high" as const
+              : backendVerdict === "SUSPICIOUS"
+                ? "medium" as const
+                : "low" as const,
+          label: `Analyzed frame ${index + 1}`,
+          note: "VideoMAE temporal frame analysis",
+        })
+      )
+    : [],
+
+  frameFlags: {
+    suspiciousFrames: data.result?.suspicious_frames ?? 0,
+    framesAnalyzed:
+      data.result?.frames_analyzed ?? frameCount,
+  },
+};
+
+    setVideoState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      progress: 100,
+      statusText: "Analysis Complete",
+      result: enrichedData,
+    }));
+
+  } catch (error) {
+    clearInterval(timer);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Video analysis failed.";
+
+    setVideoState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      progress: 0,
+      statusText: "",
+      error: message,
+      result: null,
+    }));
+
+    toast.error("Video analysis failed: " + message);
+  }
+};
 
   // 4. Audio Analysis
-  const runAudioAnalysis = async (audioBase64: string, mimeType: string, filename: string) => {
-    const startTime = performance.now();
-    setAudioState({
-      isAnalyzing: true,
-      progress: 5,
-      statusText: "Analyzing audio spectrogram & voice cloning...",
-      input: { audioBase64, mimeType, filename },
-      result: null,
-      error: null,
+ const runAudioAnalysis = async (
+  audioBase64: string,
+  mimeType: string,
+  filename: string
+) => {
+  setAudioState((prev) => ({
+    ...prev,
+    isAnalyzing: true,
+    error: null,
+  }));
+
+  try {
+    const binary = atob(audioBase64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const audioBlob = new Blob([bytes], {
+      type: mimeType || "audio/wav",
     });
 
-    const timer = simulateProgress(setAudioState, ["Transcribing speech with Whisper...", "Analyzing voice pattern (Wav2Vec2)...", "Checking spectral discontinuities...", "Scoring voice authenticity..."], 3500);
+    const formData = new FormData();
+    formData.append("file", audioBlob, filename);
 
-    try {
-      const { data, error } = await supabase.functions.invoke("verify-audio", {
-        body: { audioBase64, mimeType, filename },
-      });
-      clearInterval(timer);
-      if (error) throw error;
+    const response = await fetch(
+      `${import.meta.env.VITE_ML_API_URL || "http://localhost:8000"}/predict/audio`,
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
 
-      const elapsedMs = Math.round(performance.now() - startTime);
-      const speedMetrics = {
-        totalMs: elapsedMs,
-        prepMs: Math.round(elapsedMs * 0.20),
-        forensicMs: Math.round(elapsedMs * 0.40),
-        aiInferenceMs: Math.round(elapsedMs * 0.40),
-        throughputLabel: `${((audioBase64.length * 0.75) / (1024 * 1024) / (elapsedMs / 1000 || 1)).toFixed(1)} MB/s`,
-      };
-      const enrichedData = { ...data, speedMetrics, executionTimeMs: elapsedMs };
+    const data = await response.json();
 
-      setAudioState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 100,
-        statusText: "Analysis Complete",
-        result: enrichedData,
-      }));
-
-      saveScanToDb("audio", filename || "Audio scan", enrichedData.category, enrichedData.confidence, enrichedData);
-      toast.success(`Audio Analysis completed in ${elapsedMs}ms!`);
-    } catch (err) {
-      clearInterval(timer);
-      const msg = err instanceof Error ? err.message : "Analysis failed";
-      setAudioState((prev) => ({
-        ...prev,
-        isAnalyzing: false,
-        progress: 0,
-        statusText: "",
-        error: msg,
-        result: { isAuthentic: false, confidence: 0, category: "suspicious", verdictTag: "SUSPICIOUS CONTENT", transcript: "", reasons: ["Analysis failed."], aiExplanation: "An error occurred." },
-      }));
-      toast.error("Audio analysis failed: " + msg);
+    if (!response.ok) {
+      throw new Error(
+        data.detail || "Audio verification request failed."
+      );
     }
-  };
+
+    const isFake = data.verdict === "AI_GENERATED";
+
+    const result = {
+      verdictTag: isFake
+        ? "AI GENERATED VOICE"
+        : "REAL AUDIO",
+      confidence: Number(data.confidence ?? 0),
+      category: isFake ? "fake" : "authentic",
+      isAuthentic: !isFake,
+      probabilities: {
+        real: Number(data.bonafide_probability ?? 0),
+        aiGenerated: Number(data.spoof_probability ?? 0),
+        voiceCloned: 0,
+        manipulated: 0,
+        editedSpeech: 0,
+        suspicious: 0,
+      },
+      transcript: "",
+      durationSec: Number(data.duration_seconds ?? 0),
+      reasons: [
+        "Prediction generated by the integrated Wav2Vec2 audio detector.",
+        `Analyzed ${Number(data.windows_analyzed ?? 0)} audio window(s).`,
+        "Voice cloning, editing, and individual tampering events are not independently detected by this model.",
+      ],
+      aiExplanation:
+        data.disclaimer ||
+        "This is a model prediction and does not guarantee authenticity.",
+    };
+
+    setAudioState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      result,
+      error: null,
+    }));
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Audio verification failed.";
+
+    setAudioState((prev) => ({
+      ...prev,
+      isAnalyzing: false,
+      error: message,
+    }));
+
+    toast.error(message);
+  }
+};
 
   // 5. Document Analysis
   const runDocumentAnalysis = async (fileData: string, mime: string, filename: string, signals?: JsonRecord) => {
@@ -1461,15 +1652,27 @@ modelUsed:
   };
 
   // 7. QR Code Analysis
-  const runQrAnalysis = async (qrInput: string | HTMLImageElement | HTMLCanvasElement, overrideRawText?: string) => {
+    // 7. QR Code Analysis
+  const runQrAnalysis = async (
+    qrInput: string | HTMLImageElement | HTMLCanvasElement,
+    overrideRawText?: string,
+  ) => {
     const startTime = performance.now();
-    const inputKey = typeof qrInput === "string" ? qrInput : overrideRawText || "qr_image";
+    const inputKey =
+      typeof qrInput === "string"
+        ? qrInput
+        : overrideRawText || "qr_image";
 
-    // 1. Instant Cache Check (sub-10ms)
+    // 1. Check the existing QR result cache.
     const contentHash = await computeContentHash(inputKey);
-    const cachedResult = getCachedResult<QrForensicReport>(contentHash, "qr");
+    const cachedResult = getCachedResult<QrForensicReport>(
+      contentHash,
+      "qr",
+    );
+
     if (cachedResult) {
       const cacheHitTime = Math.round(performance.now() - startTime);
+
       const enrichedCached = {
         ...cachedResult,
         speedMetrics: {
@@ -1490,12 +1693,19 @@ modelUsed:
         error: null,
       });
 
-      saveScanToDb("qr", "QR Scan (Cached)", enrichedCached.verdict, enrichedCached.securityScore, enrichedCached);
-      toast.success(`⚡ QR Analysis loaded from cache in ${cacheHitTime}ms!`);
+      await saveScanToDb(
+        "qr",
+        "QR Scan (Cached)",
+        enrichedCached.verdict,
+        enrichedCached.securityScore,
+        enrichedCached,
+      );
+
+      toast.success(`QR Analysis loaded from cache in ${cacheHitTime}ms!`);
       return;
     }
 
-    // 2. Start Progressive QR Analysis
+    // 2. Start progressive analysis.
     setQrState({
       isAnalyzing: true,
       progress: 10,
@@ -1507,13 +1717,19 @@ modelUsed:
 
     const timer = simulateProgress(
       setQrState,
-      ["De-obfuscating payload & URI schemes...", "Expanding shortened URLs & domain checks...", "Auditing payment traps & UPI VPAs...", "Finalizing AI threat intelligence..."],
-      1200
+      [
+        "Decoding QR payload...",
+        "Checking URL structure and destination...",
+        "Analyzing local forensic indicators...",
+        "Finalizing QR security assessment...",
+      ],
+      1200,
     );
 
     try {
-      // Decode QR content from image/canvas or use override
+      // 3. Decode QR content and preserve physical forensic analysis.
       let rawText = overrideRawText || "";
+
       let physicalData: PhysicalQrAnalysis = {
         hasQr: true,
         rawText: overrideRawText || "",
@@ -1523,93 +1739,244 @@ modelUsed:
         boundaryNoiseStd: 0,
       };
 
-      if (!overrideRawText && (typeof qrInput !== "string" || qrInput.startsWith("data:image/"))) {
+      let imageDataUrl: string | null = null;
+
+      if (
+        !overrideRawText &&
+        (typeof qrInput !== "string" ||
+          qrInput.startsWith("data:image/"))
+      ) {
         let imgElem: HTMLImageElement | HTMLCanvasElement;
+
         if (typeof qrInput === "string") {
-          imgElem = await new Promise<HTMLImageElement>((resolve) => {
-            const img = new Image();
-            img.crossOrigin = "anonymous";
-            img.onload = () => resolve(img);
-            img.onerror = () => resolve(img);
-            img.src = qrInput;
-          });
+          imgElem = await new Promise<HTMLImageElement>(
+            (resolve, reject) => {
+              const img = new Image();
+
+              img.onload = () => resolve(img);
+              img.onerror = () =>
+                reject(new Error("Unable to load the QR image."));
+
+              img.src = qrInput;
+            },
+          );
+
+          imageDataUrl = qrInput;
         } else {
           imgElem = qrInput;
+
+          if (qrInput instanceof HTMLCanvasElement) {
+            imageDataUrl = qrInput.toDataURL("image/png");
+          } else {
+            imageDataUrl = qrInput.src;
+
+            // Convert the image to a data URL when possible.
+            try {
+              const canvas = document.createElement("canvas");
+              canvas.width = qrInput.naturalWidth || qrInput.width;
+              canvas.height = qrInput.naturalHeight || qrInput.height;
+
+              const context = canvas.getContext("2d");
+
+              if (context && canvas.width > 0 && canvas.height > 0) {
+                context.drawImage(qrInput, 0, 0);
+                imageDataUrl = canvas.toDataURL("image/png");
+              }
+            } catch {
+              // Keep the original image URL; local decoding can still work.
+            }
+          }
         }
 
         physicalData = await decodeQrImage(imgElem);
-        rawText = physicalData.rawText || (typeof qrInput === "string" ? qrInput : "");
+        rawText = physicalData.rawText || "";
+      }
+
+      // A plain string may already be the decoded QR content.
+      if (!rawText && typeof qrInput === "string") {
+        if (qrInput.startsWith("data:image/")) {
+          throw new Error(
+            "No readable QR code was detected. Try a clearer image.",
+          );
+        }
+
+        rawText = qrInput.trim();
       }
 
       if (!rawText) {
-        clearInterval(timer);
-        setQrState((prev) => ({
-          ...prev,
-          isAnalyzing: false,
-          progress: 0,
-          statusText: "No QR Code Found",
-          error: "No valid QR code matrix detected in uploaded image. Please try a clearer QR image.",
-        }));
-        toast.error("No QR code detected in image");
-        return;
+        throw new Error(
+          "No readable QR code was detected. Please try a clearer image.",
+        );
       }
 
-      // 3. Local Threat & Scheme Analysis
-      const localReport: QrForensicReport = analyzeQrForensics(rawText, physicalData);
+      // 4. Run the existing local QR forensic engine.
+      const localReport: QrForensicReport = analyzeQrForensics(
+        rawText,
+        physicalData,
+      );
 
-      // Fast progressive preview update
       setQrState((prev) => ({
         ...prev,
         progress: 50,
-        statusText: "Querying AI threat intelligence database...",
+        statusText: "Checking decoded QR content with the verification API...",
         result: {
           ...localReport,
           isProgressive: true,
         },
       }));
 
-      // 4. Invoke Edge Function for deep AI threat classification
+      // 5. Call FastAPI only when the original input is an image.
+      // The FastAPI /verify/qr endpoint requires multipart field "file".
       let aiResponse: QrAiResponse | null = null;
+
       try {
-        const res = await supabase.functions.invoke("verify-qr", {
-          body: {
-            rawContent: rawText,
-            decodedPayload: localReport.decodedPayload,
-            payloadType: localReport.payloadType,
-            physicalTampering: physicalData,
-          },
-        });
-        if (res.data && !res.error) {
-          aiResponse = res.data;
+        if (imageDataUrl) {
+          const imageResponse = await fetch(imageDataUrl);
+
+          if (!imageResponse.ok) {
+            throw new Error("Unable to read the QR image data.");
+          }
+
+          const imageBlob = await imageResponse.blob();
+
+          const mimeType = imageBlob.type || "image/png";
+
+          if (
+            !["image/png", "image/jpeg", "image/webp"].includes(mimeType)
+          ) {
+            throw new Error(
+              `Unsupported QR image type: ${mimeType}. Use PNG, JPEG, or WEBP.`,
+            );
+          }
+
+          const formData = new FormData();
+
+          formData.append("file", imageBlob, `qr-image.${mimeType.split("/")[1]}`);
+
+          const mlApiUrl =
+            import.meta.env.VITE_ML_API_URL || "http://localhost:8000";
+
+          const response = await fetch(`${mlApiUrl}/verify/qr`, {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(
+              data?.detail ||
+                `QR verification API returned HTTP ${response.status}.`,
+            );
+          }
+
+          if (!data?.success || data.qr_detected !== true) {
+            throw new Error("The backend could not decode this QR code.");
+          }
+
+          if (data.content_type === "url" && data.url_analysis) {
+            const urlResult = data.url_analysis as Record<string, unknown>;
+
+            const backendVerdict = String(
+              urlResult.verdict || "UNVERIFIED",
+            ).toUpperCase();
+
+            const backendScore = Number(urlResult.security_score);
+
+            let mappedVerdict: QrForensicReport["verdict"] | undefined;
+            let mappedRisk: QrRiskLevel | undefined;
+            let mappedAction:
+              | QrForensicReport["recommendedAction"]
+              | undefined;
+
+            if (backendVerdict === "MALICIOUS") {
+              mappedVerdict = "Scam / Phishing Attack";
+              mappedRisk = "Critical Risk";
+              mappedAction = "High-Risk Destination — Block Immediately";
+            } else if (backendVerdict === "SUSPICIOUS") {
+              mappedVerdict = "Suspicious";
+              mappedRisk = "High Risk";
+              mappedAction = "Do Not Open";
+            } else if (backendVerdict === "LEGITIMATE") {
+              mappedVerdict = "Legitimate";
+              mappedRisk = "Low Risk";
+              mappedAction = "Proceed With Caution";
+            } else {
+              mappedVerdict = "Unverified";
+              mappedRisk = "Medium Risk";
+              mappedAction = "Verify Destination Before Opening";
+            }
+
+            aiResponse = {
+              verdict: mappedVerdict,
+              securityScore: Number.isFinite(backendScore)
+                ? Math.max(0, Math.min(100, backendScore))
+                : undefined,
+              riskLevel: mappedRisk,
+              recommendedAction: mappedAction,
+              analysis:
+                typeof urlResult.message === "string"
+                  ? urlResult.message
+                  : `The QR code was decoded. URL classification: ${backendVerdict}. Structural URL checks do not prove that a destination is safe.`,
+            };
+          } else if (data.content_type === "text") {
+            aiResponse = {
+              verdict: "Unverified",
+              riskLevel: "Medium Risk",
+              recommendedAction: "Verify Content Before Acting",
+              analysis:
+                "The QR code contains text rather than an HTTP or HTTPS URL. The backend decoded the content but did not independently verify its authenticity.",
+            };
+          }
+        } else {
+          // Decoded text cannot be uploaded to this image-only endpoint.
+          // Local forensic analysis remains available for text-only input.
+          console.info(
+            "QR input is already decoded text; using local forensic analysis.",
+          );
         }
-      } catch (e) {
-        console.warn("verify-qr edge function offline, using client-side QR forensic engine:", e);
+      } catch (error) {
+        // Keep local analysis if the API is unavailable.
+        console.warn(
+          "FastAPI QR verification unavailable; retaining local forensic analysis:",
+          error,
+        );
       }
 
+      // 6. Finalize results.
       clearInterval(timer);
+
       const elapsedMs = Math.round(performance.now() - startTime);
 
-      const speedMetrics = {
+      const speedMetrics: SpeedMetrics = {
         totalMs: elapsedMs,
-        prepMs: Math.round(elapsedMs * 0.20),
-        forensicMs: Math.round(elapsedMs * 0.40),
-        aiInferenceMs: Math.round(elapsedMs * 0.40),
+        prepMs: Math.round(elapsedMs * 0.2),
+        forensicMs: Math.round(elapsedMs * 0.4),
+        aiInferenceMs: Math.round(elapsedMs * 0.4),
         throughputLabel: `${(1000 / (elapsedMs || 1)).toFixed(1)} scan/s`,
         isCached: false,
       };
 
-      const finalReport: QrForensicReport & { speedMetrics: SpeedMetrics; executionTimeMs: number } = {
+      const finalReport: QrForensicReport & {
+        speedMetrics: SpeedMetrics;
+        executionTimeMs: number;
+      } = {
         ...localReport,
         verdict: aiResponse?.verdict || localReport.verdict,
-        securityScore: aiResponse?.securityScore != null ? Math.min(localReport.securityScore, aiResponse.securityScore) : localReport.securityScore,
+        securityScore:
+          aiResponse?.securityScore != null
+            ? Math.min(localReport.securityScore, aiResponse.securityScore)
+            : localReport.securityScore,
         riskLevel: aiResponse?.riskLevel || localReport.riskLevel,
-        recommendedAction: aiResponse?.recommendedAction || localReport.recommendedAction,
-        plainExplanation: aiResponse?.analysis || localReport.plainExplanation,
+        recommendedAction:
+          aiResponse?.recommendedAction || localReport.recommendedAction,
+        plainExplanation:
+          aiResponse?.analysis || localReport.plainExplanation,
         speedMetrics,
         executionTimeMs: elapsedMs,
       };
 
-      // Store in SHA-256 Cache
+      // 7. Preserve the existing SHA-256 cache.
       setCachedResult(contentHash, "qr", finalReport);
 
       setQrState((prev) => ({
@@ -1618,35 +1985,33 @@ modelUsed:
         progress: 100,
         statusText: "Analysis Complete",
         result: finalReport,
+        error: null,
       }));
 
-      saveScanToDb("qr", `QR: ${localReport.payloadType}`, finalReport.verdict, finalReport.securityScore, finalReport);
+      await saveScanToDb(
+        "qr",
+        `QR: ${localReport.payloadType}`,
+        finalReport.verdict,
+        finalReport.securityScore,
+        finalReport,
+      );
+
       toast.success(`QR Analysis completed in ${elapsedMs}ms!`);
     } catch (err) {
       clearInterval(timer);
-      const msg = err instanceof Error ? err.message : "Analysis failed";
+
+      const msg =
+        err instanceof Error ? err.message : "QR analysis failed.";
+
       setQrState((prev) => ({
         ...prev,
         isAnalyzing: false,
         progress: 0,
         statusText: "",
         error: msg,
-        result: {
-          rawContent: typeof qrInput === "string" ? qrInput : "",
-          decodedPayload: "",
-          wasObfuscated: false,
-          payloadType: "Plain Text",
-          securityScore: 0,
-          riskLevel: "Critical Risk",
-          verdict: "Scam / Phishing Attack",
-          recommendedAction: "High-Risk Destination — Block Immediately",
-          indicators: { phishing: false, malware: false, paymentScam: false, physicalTampering: false, obfuscation: false },
-          threatList: ["Error analyzing QR payload"],
-          physicalTampering: { hasQr: false, rawText: null, isStickerOverlay: false, overlayConfidence: 0, alignmentConsistency: 0, boundaryNoiseStd: 0 },
-          plainExplanation: "An error occurred during QR code analysis.",
-          modelVersion: "QRThreatAI v2.4",
-        } as QrForensicReport,
+        result: null,
       }));
+
       toast.error("QR code analysis failed: " + msg);
     }
   };

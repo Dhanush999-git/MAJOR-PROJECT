@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Seo } from "@/components/Seo";
-import { API_BASE_URL } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 const emailSchema = z.string().trim().email({ message: "Enter a valid email" }).max(255);
 const passwordSchema = z
@@ -55,6 +55,23 @@ const Auth = () => {
     if (safeNext) sessionStorage.setItem("verifact_post_auth_next", safeNext);
   }, [safeNext]);
 
+  // Cleanly detect and display any OAuth error params (e.g. if user cancels login)
+  useEffect(() => {
+    const hash = window.location.hash;
+    const search = window.location.search;
+    if (hash.includes("error=") || search.includes("error=")) {
+      const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+      const searchParams = new URLSearchParams(search);
+      const errorDesc = hashParams.get("error_description") || searchParams.get("error_description");
+      const errorMsg = hashParams.get("error") || searchParams.get("error");
+      if (errorDesc || errorMsg) {
+        const cleanMsg = (errorDesc || errorMsg || "Google authentication was cancelled").replace(/\+/g, " ");
+        toast.error(cleanMsg);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!loading && user) {
       const stored = sessionStorage.getItem("verifact_post_auth_next");
@@ -73,51 +90,51 @@ const Auth = () => {
 
       setBusy(true);
       if (mode === "signin") {
-  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email: e1,
-      password,
-    }),
-  });
+        const response = await apiFetch("/api/auth/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: e1,
+            password,
+          }),
+        });
 
-  const data = await response.json();
+        const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(data.error || "Login failed");
-  }
+        if (!response.ok) {
+          throw new Error(data.error || "Login failed");
+        }
 
-  setSession(data.user, data.token);
+        setSession(data.user, data.token);
 
-toast.success("Welcome back");
-navigate(from, { replace: true });
-} else if (mode === "signup") {
-  const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email: e1,
-      password,
-      display_name: displayName,
-    }),
-  });
+        toast.success("Welcome back");
+        navigate(from, { replace: true });
+      } else if (mode === "signup") {
+        const response = await apiFetch("/api/auth/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: e1,
+            password,
+            display_name: displayName,
+          }),
+        });
 
-  const data = await response.json();
+        const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(data.error || "Registration failed");
-  }
+        if (!response.ok) {
+          throw new Error(data.error || "Registration failed");
+        }
 
-  setSession(data.user, data.token);
+        setSession(data.user, data.token);
 
-toast.success("Account created successfully");
-navigate(from, { replace: true });
-} else {
+        toast.success("Account created successfully");
+        navigate(from, { replace: true });
+      } else {
         const { error } = await supabase.auth.resetPasswordForEmail(e1, {
           redirectTo: `${window.location.origin}/reset-password`,
         });
@@ -126,7 +143,14 @@ navigate(from, { replace: true });
         setMode("signin");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed";
+      let msg = "Authentication failed";
+      if (err instanceof Error) {
+        if (err.message.includes("Failed to fetch") || err.name === "TypeError") {
+          msg = "Unable to connect to authentication server. Please ensure the backend is running.";
+        } else {
+          msg = err.message;
+        }
+      }
       toast.error(msg);
     } finally {
       setBusy(false);
@@ -136,6 +160,10 @@ navigate(from, { replace: true });
   const handleGoogle = async () => {
     setBusy(true);
     try {
+      const destination = safeNext || (from && from !== "/auth" ? from : null);
+      if (destination) {
+        sessionStorage.setItem("verifact_post_auth_next", destination);
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -145,7 +173,6 @@ navigate(from, { replace: true });
       if (error) throw error;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google sign-in failed");
-    } finally {
       setBusy(false);
     }
   };

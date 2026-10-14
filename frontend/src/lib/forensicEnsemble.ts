@@ -2,24 +2,9 @@ import { type ForensicBundle } from "./forensicSignals";
 
 interface ImageSignals {
   exif?: { make?: string; model?: string; software?: string };
-  compression?: {
-    megapixels?: number;
-    bytesPerPixel?: number;
-    [key: string]: unknown;
-  };
+  compression?: { megapixels?: number; bytesPerPixel?: number; [key: string]: unknown };
   dimensions?: { width: number; height: number };
   mime?: string;
-}
-
-interface DetectionBreakdown {
-  deepfake: number;
-  beautyFilter: number;
-  faceEdit: number;
-  backgroundReplacement: number;
-  objectRemoval: number;
-  lightingMismatch: number;
-  metadataIssues: number;
-  aiPattern: number;
 }
 
 interface VisionAiResult {
@@ -27,7 +12,16 @@ interface VisionAiResult {
   category?: string;
   verdict?: string;
   analysis?: string;
-  detectionBreakdown?: Partial<DetectionBreakdown>;
+  detectionBreakdown?: {
+    deepfake: number;
+    beautyFilter: number;
+    faceEdit: number;
+    backgroundReplacement: number;
+    objectRemoval: number;
+    lightingMismatch: number;
+    metadataIssues: number;
+    aiPattern: number;
+  };
 }
 
 export interface IndividualDetectorScore {
@@ -62,7 +56,16 @@ export interface EnsembleVerificationResult {
   whyItMatters: string[];
   primaryMetric: { label: string; value: number };
   trustScore: { level: "Low Risk" | "Medium Risk" | "High Risk"; score: number };
-  detectionBreakdown: DetectionBreakdown;
+  detectionBreakdown: {
+    deepfake: number;
+    beautyFilter: number;
+    faceEdit: number;
+    backgroundReplacement: number;
+    objectRemoval: number;
+    lightingMismatch: number;
+    metadataIssues: number;
+    aiPattern: number;
+  };
   modelVersion: string;
 }
 
@@ -325,10 +328,12 @@ if (isStrongAiSignals || weightedScore >= 60) {
 
   // Limitations
   const limitations: string[] = [];
-  if (signals?.compression?.megapixels && signals.compression.megapixels < 0.5) {
+  const mp = signals?.compression?.megapixels;
+  if (typeof mp === "number" && mp < 0.5) {
     limitations.push("Low image resolution (<0.5 MP) reduces high-frequency PRNU sensor noise evaluation precision.");
   }
-  if (signals?.mime === "image/jpeg" && signals?.compression?.bytesPerPixel < 0.08) {
+  const bpp = signals?.compression?.bytesPerPixel;
+  if (signals?.mime === "image/jpeg" && typeof bpp === "number" && bpp < 0.08) {
     limitations.push("Heavy JPEG compression detected; compression artifacts may slightly elevate noise cleanliness score.");
   }
   if (hasDisagreement) {
@@ -357,7 +362,7 @@ if (isStrongAiSignals || weightedScore >= 60) {
         "Authentic media helps preserve truth and verify identity in digital communication.",
       ];
 
-  const breakdown: DetectionBreakdown = {
+  const breakdown = visionAIResult?.detectionBreakdown || {
     deepfake: Math.round(spatialScore * 0.9),
     beautyFilter: Math.round(spatialScore * 0.7),
     faceEdit: Math.round(spatialScore * 0.8),
@@ -366,7 +371,6 @@ if (isStrongAiSignals || weightedScore >= 60) {
     lightingMismatch: Math.round(fftScore * 0.8),
     metadataIssues: hasExifMake ? 15 : 75,
     aiPattern: Math.round(Math.max(fftScore, prnuScore)),
-    ...visionAIResult?.detectionBreakdown,
   };
 
   return {
